@@ -265,7 +265,8 @@ class CommentsPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("commentsPanel")
-        self.setFixedWidth(268)
+        self.setMinimumWidth(260)
+        self.resize(268, 800)
         self._current_page = 1
         self._cards: List[CommentCard] = []
         self._init_ui()

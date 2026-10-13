@@ -62,7 +62,8 @@ class RightDrawerWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("rightDrawer")
-        self.setFixedWidth(268)
+        self.setMinimumWidth(260)
+        self.resize(268, 800)
         self.init_ui()
 
     def init_ui(self):
@@ -80,8 +81,8 @@ class RightDrawerWidget(QWidget):
         container = QWidget()
         container.setObjectName("rightDrawerContent")
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(14, 18, 14, 18)
-        layout.setSpacing(14)
+        layout.setContentsMargins(12, 14, 12, 14)
+        layout.setSpacing(12)
         layout.setAlignment(Qt.AlignTop)
 
         # ── Header: Title & Close Button ──
@@ -206,12 +207,14 @@ class RightDrawerWidget(QWidget):
         ocr_btns = QHBoxLayout()
         ocr_btns.setSpacing(8)
         self.btn_ocr_page = QPushButton("OCR Page")
+        self.btn_ocr_page.setObjectName("pillButton")
         self.btn_ocr_page.setToolTip("Extract selectable text from current page")
         self.btn_ocr_page.setCursor(Qt.PointingHandCursor)
         self.btn_ocr_page.clicked.connect(self.ocr_current_page_requested.emit)
         ocr_btns.addWidget(self.btn_ocr_page)
 
         self.btn_ocr_doc = QPushButton("OCR All")
+        self.btn_ocr_doc.setObjectName("pillButton")
         self.btn_ocr_doc.setToolTip("Extract text from all scanned pages in document")
         self.btn_ocr_doc.setCursor(Qt.PointingHandCursor)
         self.btn_ocr_doc.clicked.connect(self.ocr_all_pages_requested.emit)
@@ -317,7 +320,7 @@ class RightDrawerWidget(QWidget):
             self.attachments_list.show()
             self.btn_extract_attach.show()
             for name in emb_names:
-                item = QListWidgetItem(f"📎 {name}")
+                item = QListWidgetItem(name)
                 item.setData(Qt.UserRole, name)
                 self.attachments_list.addItem(item)
             self.attachments_list.setCurrentRow(0)
@@ -349,10 +352,10 @@ class RightDrawerWidget(QWidget):
     def update_page_ocr_status(self, is_scanned: bool, char_count: int):
         tokens = ThemeManager.get_tokens()
         if is_scanned:
-            self.lbl_ocr_page_status.setText(f"Page Status: ⚠️ Scanned image ({char_count} chars)")
+            self.lbl_ocr_page_status.setText(f"Page Status: Scanned image ({char_count} chars)")
             self.lbl_ocr_page_status.setStyleSheet(f"color: {tokens.warning}; font-size: 11px; font-weight: 500;")
         else:
-            self.lbl_ocr_page_status.setText(f"Page Status: ✅ Text layer ({char_count} chars)")
+            self.lbl_ocr_page_status.setText(f"Page Status: Selectable text ({char_count} chars)")
             self.lbl_ocr_page_status.setStyleSheet(f"color: {tokens.success}; font-size: 11px; font-weight: 500;")
 
     def update_annotations_feed(self, annotations: List[Dict[str, Any]]):
@@ -378,10 +381,13 @@ class RightDrawerWidget(QWidget):
             self.ai_chat_panel.append_ai_message(message)
 
     def update_theme(self):
+        t = ThemeManager.get_tokens()
         is_dark = ThemeManager.is_dark()
-        bg = "#18181A" if is_dark else "#FFFFFF"
-        border = "#333333" if is_dark else "#D9D9D9"
-        title_color = "#F5F5F7" if is_dark else "#242424"
+        bg = t.surface
+        card_bg = t.surface_raised
+        border = t.border
+        text_primary = t.text
+        text_muted = t.text_muted
 
         self.setStyleSheet(f"""
             RightDrawerWidget {{
@@ -395,12 +401,56 @@ class RightDrawerWidget(QWidget):
             QLabel#drawerHeaderTitle {{
                 font-size: 16px;
                 font-weight: 600;
-                color: {title_color};
+                color: {text_primary};
+            }}
+            QLabel#powerSectionTitle {{
+                font-size: 11px;
+                font-weight: 700;
+                color: {text_muted};
+                letter-spacing: 0.5px;
+            }}
+            QFrame#powerBox {{
+                background-color: {card_bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px;
             }}
             QLabel#drawerDocPropValue {{
                 font-size: 12px;
                 font-weight: 600;
-                color: {title_color};
+                color: {text_primary};
+            }}
+            QListWidget#powerListWidget {{
+                background-color: {t.surface_sunken};
+                border: 1px solid {border};
+                border-radius: 4px;
+                color: {text_primary};
+                font-size: 11px;
+            }}
+            QPushButton#pillButton {{
+                background-color: {card_bg};
+                color: {text_primary};
+                border: 1px solid {border};
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: 500;
+                padding: 4px 8px;
+            }}
+            QPushButton#pillButton:hover {{
+                background-color: {t.accent_subtle};
+                border: 1px solid {t.accent};
+                color: {t.accent};
+            }}
+            QToolButton#ghostToolButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                color: {text_muted};
+                font-size: 13px;
+            }}
+            QToolButton#ghostToolButton:hover {{
+                background-color: {'rgba(255, 255, 255, 0.10)' if is_dark else 'rgba(0, 0, 0, 0.06)'};
+                color: {text_primary};
             }}
         """)
         self.ai_chat_panel.update_theme()

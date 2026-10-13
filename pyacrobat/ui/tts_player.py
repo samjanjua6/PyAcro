@@ -33,6 +33,10 @@ class TTSMiniPlayer(QFrame):
         self.is_playing = False
         self.init_ui()
 
+    def minimumSizeHint(self):
+        from PySide6.QtCore import QSize
+        return QSize(350, 44)
+
     def init_ui(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(14, 4, 14, 4)

@@ -267,11 +267,12 @@ QScrollArea > QWidget > QWidget {{
 }}
 
 /* Splitters & Dividers */
-QSplitter::handle {{
+QSplitter::handle:horizontal {{
+    width: 4px;
     background-color: {t.border_subtle};
 }}
 
-QSplitter::handle:hover {{
+QSplitter::handle:horizontal:hover {{
     background-color: {t.accent};
 }}
 
@@ -573,7 +574,7 @@ QProgressBar::chunk {{
 }}
 
 #organizerCanvasArea {{
-    background-color: {t.bg};
+    background-color: {t.canvas_bg};
     border: none;
 }}
 

@@ -9,7 +9,7 @@ import re
 from typing import Optional, List, Tuple
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextBrowser,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QTextBrowser,
     QLineEdit, QPushButton, QComboBox, QDialog, QFormLayout,
     QMessageBox, QApplication, QFrame, QScrollArea, QToolButton
 )
@@ -138,68 +138,80 @@ class AIChatPanel(QWidget):
 
         # Header Bar
         header = QHBoxLayout()
-        header.setSpacing(4)
+        header.setSpacing(6)
 
-        self.lbl_title = QLabel("✨ AI Assistant")
+        title_col = QVBoxLayout()
+        title_col.setSpacing(1)
+
+        self.lbl_title = QLabel("AI Assistant")
         self.lbl_title.setObjectName("drawerHeaderTitle")
-        header.addWidget(self.lbl_title)
+        title_col.addWidget(self.lbl_title)
 
-        self.lbl_provider_badge = QLabel(f"[{self.manager.get_provider_name()}]")
-        self.lbl_provider_badge.setObjectName("providerBadge")
-        header.addWidget(self.lbl_provider_badge)
+        self.lbl_provider_badge = QLabel(self.manager.get_provider_name())
+        self.lbl_provider_badge.setObjectName("subtleLabel")
+        title_col.addWidget(self.lbl_provider_badge)
+        header.addLayout(title_col)
+
         header.addStretch()
 
         btn_settings = QToolButton()
-        btn_settings.setText("⚙")
+        btn_settings.setText("Settings")
         btn_settings.setToolTip("Configure AI Provider & Keys")
         btn_settings.setObjectName("ghostToolButton")
+        btn_settings.setCursor(Qt.PointingHandCursor)
         btn_settings.clicked.connect(self.open_settings)
         header.addWidget(btn_settings)
 
         btn_clear = QToolButton()
-        btn_clear.setText("🗑")
+        btn_clear.setText("Clear")
         btn_clear.setToolTip("Clear Chat History")
         btn_clear.setObjectName("ghostToolButton")
+        btn_clear.setCursor(Qt.PointingHandCursor)
         btn_clear.clicked.connect(self.clear_chat)
         header.addWidget(btn_clear)
 
         layout.addLayout(header)
 
-        # Quick Action Pills Row
-        pill_layout = QHBoxLayout()
-        pill_layout.setSpacing(4)
+        # Quick Action Pills: 2x2 grid layout prevents horizontal cropping
+        pills_grid = QGridLayout()
+        pills_grid.setSpacing(6)
+        pills_grid.setContentsMargins(0, 2, 0, 4)
 
-        btn_doc_summary = QPushButton("📑 Doc")
+        btn_doc_summary = QPushButton("Doc Summary")
         btn_doc_summary.setToolTip("Generate Executive Document Summary")
         btn_doc_summary.setObjectName("pillButton")
+        btn_doc_summary.setCursor(Qt.PointingHandCursor)
         btn_doc_summary.clicked.connect(lambda: self.ask("Summarize document"))
-        pill_layout.addWidget(btn_doc_summary)
+        pills_grid.addWidget(btn_doc_summary, 0, 0)
 
-        btn_page_summary = QPushButton("📄 Page")
+        btn_page_summary = QPushButton("Page Summary")
         btn_page_summary.setToolTip("Summarize Visible Page")
         btn_page_summary.setObjectName("pillButton")
+        btn_page_summary.setCursor(Qt.PointingHandCursor)
         btn_page_summary.clicked.connect(lambda: self.ask("Summarize page"))
-        pill_layout.addWidget(btn_page_summary)
+        pills_grid.addWidget(btn_page_summary, 0, 1)
 
-        btn_tables = QPushButton("📊 Tables")
+        btn_tables = QPushButton("Extract Tables")
         btn_tables.setToolTip("Extract Tabular Grids to Markdown")
         btn_tables.setObjectName("pillButton")
+        btn_tables.setCursor(Qt.PointingHandCursor)
         btn_tables.clicked.connect(lambda: self.ask("Extract tables"))
-        pill_layout.addWidget(btn_tables)
+        pills_grid.addWidget(btn_tables, 1, 0)
 
-        btn_terms = QPushButton("💡 Terms")
+        btn_terms = QPushButton("Key Terms")
         btn_terms.setToolTip("Extract Key Terms & Definitions")
         btn_terms.setObjectName("pillButton")
+        btn_terms.setCursor(Qt.PointingHandCursor)
         btn_terms.clicked.connect(lambda: self.ask("Key terms"))
-        pill_layout.addWidget(btn_terms)
+        pills_grid.addWidget(btn_terms, 1, 1)
 
-        layout.addLayout(pill_layout)
+        layout.addLayout(pills_grid)
 
         # Chat Conversation Browser
         self.chat_browser = QTextBrowser()
         self.chat_browser.setOpenExternalLinks(False)
         self.chat_browser.anchorClicked.connect(self._on_anchor_clicked)
-        self.chat_browser.setMinimumHeight(160)
+        self.chat_browser.setMinimumHeight(150)
         self.chat_browser.setObjectName("chatBrowser")
         layout.addWidget(self.chat_browser)
 
@@ -232,7 +244,7 @@ class AIChatPanel(QWidget):
 
     def update_theme(self):
         """Refreshes chat display colors to match the active theme tokens."""
-        self.lbl_provider_badge.setText(f"[{self.manager.get_provider_name()}]")
+        self.lbl_provider_badge.setText(self.manager.get_provider_name())
         self.chat_browser.clear()
         self._show_welcome_message()
         for role, text in self.chat_history:
@@ -244,10 +256,10 @@ class AIChatPanel(QWidget):
     def _show_welcome_message(self):
         tokens = ThemeManager.get_tokens()
         welcome_html = (
-            f"<div style='color: {tokens.text_muted}; font-size: 11px; margin-bottom: 8px;'>"
-            f"<b>👋 Welcome to Acrobat AI Copilot</b><br>"
+            f"<div style='color: {tokens.text_muted}; font-size: 11px; margin-bottom: 6px; line-height: 1.4;'>"
+            f"<b style='color: {tokens.text}; font-size: 12px;'>Acrobat AI Assistant</b><br>"
             f"Ask questions, summarize key sections, or extract structured data.<br>"
-            f"<i>Click any page citation e.g. <a href='page://1' style='color: {tokens.accent}; text-decoration: underline;'>[Page 1]</a> to jump directly to it!</i>"
+            f"<i>Click any page citation e.g. <a href='page://1' style='color: {tokens.accent}; text-decoration: underline;'>[Page 1]</a> to jump directly to it.</i>"
             f"</div><hr style='border: 0; border-top: 1px solid {tokens.border};'><br>"
         )
         self.chat_browser.setHtml(welcome_html)
@@ -314,7 +326,7 @@ class AIChatPanel(QWidget):
         formatted = self._format_markdown_to_html(markdown_text)
         ai_html = (
             f"<div style='margin-top: 6px; margin-bottom: 8px; background-color: {tokens.surface_raised}; border: 1px solid {tokens.border}; border-radius: 6px; padding: 8px; color: {tokens.text};'>"
-            f"<div style='color: {tokens.accent}; font-weight: bold; font-size: 11px; margin-bottom: 4px;'>🤖 AI Copilot</div>"
+            f"<div style='color: {tokens.accent}; font-weight: bold; font-size: 11px; margin-bottom: 4px;'>AI Assistant</div>"
             f"<div style='line-height: 1.4;'>{formatted}</div>"
             f"</div>"
         )
@@ -354,7 +366,7 @@ class AIChatPanel(QWidget):
         self.lbl_status.setText("Error occurred")
         self.btn_send.setEnabled(True)
         self.input_query.setEnabled(True)
-        self.append_ai_message(f"⚠️ Error: {error_msg}")
+        self.append_ai_message(f"Error: {error_msg}")
 
     def open_settings(self):
         dlg = AISettingsDialog(self.manager, parent=self)

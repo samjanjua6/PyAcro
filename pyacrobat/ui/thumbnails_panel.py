@@ -144,7 +144,8 @@ class PageThumbnailsPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(268)
+        self.setMinimumWidth(260)
+        self.resize(268, 800)
         self._cards: List[ThumbnailCard] = []
         self._current_page = 1
         self._init_ui()

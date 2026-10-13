@@ -106,6 +106,10 @@ class PageControlsBar(QWidget):
         self.setFixedHeight(38)
         self.init_ui()
 
+    def minimumSizeHint(self):
+        from PySide6.QtCore import QSize
+        return QSize(400, 38)
+
     def init_ui(self):
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(12, 2, 12, 2)
