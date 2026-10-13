@@ -15,7 +15,7 @@
 
 ---
 
-## 📖 Overview
+## Overview
 
 **PyAcro** is an open-source, desktop PDF productivity workstation engineered to replicate the polish, responsiveness, and capabilities of **Adobe Acrobat Pro**. 
 
@@ -23,9 +23,9 @@ Designed with a strict architectural separation between core engines and UI comp
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-### 🖥️ 1. Adobe Spectrum-Inspired UI & Viewport
+### 1. Adobe Spectrum-Inspired UI & Viewport
 * **Continuous High-DPI Canvas:** High-resolution page rasterization with dynamic Device Pixel Ratio (DPR) supersampling, realistic page drop-shadows, and smooth continuous vertical scrolling.
 * **Multi-Tab Workstation:** Open multiple PDF documents simultaneously with dirty-state change indicators (`*`) and non-destructive atomic saving.
 * **Quick Tools Pill Ribbon:** Floating, compact toolbar providing instant access to Hand (`H`), Select (`V`), dynamic zoom (`Fit Width`, `Fit Page`, 50%–300%), and direct page jumping.
@@ -36,13 +36,13 @@ Designed with a strict architectural separation between core engines and UI comp
 * **Adobe Spectrum Design Tokens:** Symmetrical, high-contrast **Dark Theme** (`#1E1E1E`) and **Light Theme** (`#F5F5F7`) powered by a centralized token manager with zero hardcoded color overrides.
 * **Screen-Bounds Protection:** Automatically calculates available display working area on Windows desktops to prevent window overlap or off-screen positioning.
 
-### ✍️ 2. ISO 32000 Markup & Annotation Suite
+### 2. ISO 32000 Markup & Annotation Suite
 * **Text Highlighting:** Multi-color highlighter palette (Acrobat Yellow, Mint Green, Cyan, Soft Pink) snapping to text runs.
 * **Freehand Vector Pen:** Smooth freehand drawing with customizable line colors and stroke widths (1px, 2px, 4px).
 * **Sticky Notes & Comments:** Pin annotations directly on pages with an interactive right-rail comments feed and deletion controls.
 * **Standard PDF Serialization:** All highlights, vector strokes, and notes serialize as standard ISO 32000 PDF annotation objects, ensuring edits render natively in Adobe Acrobat, Apple Preview, and modern web browsers.
 
-### 🗂️ 3. "Organize Pages" Interactive Workstation
+### 3. "Organize Pages" Interactive Workstation
 * **Fluid Drag-and-Drop Reordering:** Live card sliding where pages physically glide aside with cubic easing when a dragged page hovers over slots.
 * **Page Transformations:** Rotate selected pages clockwise/counter-clockwise (90° increments) or delete pages with confirmation.
 * **Page Insertion & Duplication:** Insert blank pages anywhere in the document sequence or clone existing pages.
@@ -50,7 +50,7 @@ Designed with a strict architectural separation between core engines and UI comp
   * **Merge External PDFs:** Combine multiple PDF files into the active document.
   * **Split / Extract Pages:** Select specific page ranges (e.g., `1-3, 5, 8`) to export into new standalone PDF files.
 
-### ⚡ 4. Power Productivity Modules
+### 4. Power Productivity Modules
 * **Local Tesseract OCR:**
   * Embedded Tesseract OCR engine (`tessdata/eng.traineddata`) with automated scanned-page detection.
   * Asynchronous background OCR processing (`QThread`) with live progress tracking.
@@ -65,23 +65,23 @@ Designed with a strict architectural separation between core engines and UI comp
   * **Export to Text:** Clean plain text extraction (`.txt`).
   * **Page Snapshot:** High-resolution page snapshot rendering to PNG (`300 DPI`).
 
-### 🤖 5. AI Document Copilot & Smart Assistant
+### 5. AI Document Copilot & Smart Assistant
 * **In-Memory Semantic Indexing:** Chunks and indexes document text, calculating frequency heuristics and section themes without uploading sensitive data.
 * **Clickable Page Citations:** AI responses cite references as `[Page X]` pills; clicking any citation immediately scrolls the canvas directly to that exact page.
-* **Quick Action Pills:** One-click shortcuts for `📑 Doc Summary`, `📄 Page Summary`, `📊 Tables`, and `💡 Key Terms`.
+* **Quick Action Pills:** One-click shortcuts for Document Summary, Page Summary, Table Extraction, and Key Terms.
 * **Pluggable AI Providers:**
   * **Smart Local Engine:** 100% private, offline, zero-config heuristic analysis.
   * **Google Gemini:** Cloud integration via REST API for deep reasoning.
   * **Ollama / OpenAI API:** Connect to local Ollama (`http://localhost:11434/v1`) or custom LLM endpoints.
 
-### 🏠 6. Acrobat Home & Recent Files Hub
+### 6. Acrobat Home & Recent Files Hub
 * **Recent Documents Grid & Table:** View recently opened files with live metadata (page counts, file sizes, last opened dates).
 * **Search & Filter:** Search recent files in real-time or filter by document properties.
 * **File Details Drawer:** Inspect document metadata, page statistics, and preview snapshots.
 
 ---
 
-## 🏗️ Architecture & Project Structure
+## Architecture & Project Structure
 
 ```
 PyAcro/
@@ -117,7 +117,7 @@ PyAcro/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 * **Operating System:** Windows 10 or 11 (64-bit recommended)
@@ -150,7 +150,7 @@ PyAcro/
 
 ---
 
-## ⌨️ Keyboard Shortcuts
+## Keyboard Shortcuts
 
 | Shortcut | Action |
 |---|---|
@@ -165,7 +165,7 @@ PyAcro/
 
 ---
 
-## 🔒 Security & Privacy Invariants
+## Security & Privacy Invariants
 
 * **Non-Destructive Operations:** PyAcro uses atomic file writes and never overwrites an existing document without explicit user confirmation.
 * **100% Offline Capable:** The PDF rendering engine, Tesseract OCR, annotation serialization, and the Smart Local AI Engine execute entirely on your local machine with zero external network dependencies.
@@ -173,6 +173,6 @@ PyAcro/
 
 ---
 
-## 📄 License
+## License
 
 Distributed under the MIT License. See `LICENSE` for details.
