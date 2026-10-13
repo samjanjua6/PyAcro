@@ -34,12 +34,21 @@ from pyacrobat.ui.right_drawer import RightDrawerWidget
 from pyacrobat.ui.comments_panel import CommentsPanel
 from pyacrobat.ui.thumbnails_panel import PageThumbnailsPanel
 from pyacrobat.ui.bookmarks_panel import BookmarksPanel
+from pyacrobat.ui.tts_player import TTSMiniPlayer
 from pyacrobat.ui.pdf_canvas import PDFCanvas
 from pyacrobat.ui.organizer_grid import OrganizerGridWidget
 from pyacrobat.ui.merge_dialog import MergeDialog, SplitExtractDialog
 from pyacrobat.ui.ocr_dialog import OCRResultDialog
 from pyacrobat.ui.home_view import HomeView
 from pyacrobat.core.recent_files import RecentFilesManager
+
+
+class ViewportContainer(QWidget):
+    """Viewport container housing toolbar, canvas, and controls."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("documentViewportContainer")
 
 
 class DocumentTab(QWidget):
@@ -102,8 +111,7 @@ class DocumentTab(QWidget):
         self.splitter.addWidget(self.left_rail)
 
         # 2. Column 2: Central PDF Viewport (Page Controls Bar + Floating Tools Pill + Canvas)
-        self.viewport_container = QWidget()
-        self.viewport_container.setObjectName("documentViewportContainer")
+        self.viewport_container = ViewportContainer()
         vp_layout = QVBoxLayout(self.viewport_container)
         vp_layout.setContentsMargins(0, 0, 0, 0)
         vp_layout.setSpacing(0)
@@ -116,7 +124,20 @@ class DocumentTab(QWidget):
         self.page_controls.fit_width_requested.connect(self.fit_width)
         self.page_controls.fit_page_requested.connect(self.fit_page)
         self.page_controls.page_jump_requested.connect(self.go_to_page)
+        self.page_controls.rotate_cw_requested.connect(self.rotate_current_page_cw)
+        self.page_controls.rotate_ccw_requested.connect(self.rotate_current_page_ccw)
+        self.page_controls.delete_page_requested.connect(self.delete_current_page)
+        self.page_controls.organize_pages_requested.connect(self.show_organize_view)
+        self.page_controls.tts_toggle_requested.connect(self.toggle_tts_player)
         vp_layout.addWidget(self.page_controls)
+
+        # Neural Read Aloud Mini-Player (Embedded under toolbar)
+        self.tts_player = TTSMiniPlayer(self.viewport_container)
+        self.tts_player.setVisible(False)
+        self.tts_player.play_requested.connect(self.play_read_aloud)
+        self.tts_player.pause_requested.connect(self.pause_read_aloud)
+        self.tts_player.stop_requested.connect(self.stop_read_aloud)
+        vp_layout.addWidget(self.tts_player)
 
         # Floating Quick Tools Pill Container
         self.floating_tools_container = QWidget()
@@ -174,6 +195,7 @@ class DocumentTab(QWidget):
         self.right_drawer.ai_page_jump_requested.connect(self.go_to_page)
         self.right_drawer.annotation_jump_requested.connect(self.go_to_page)
         self.right_drawer.delete_annotation_requested.connect(self._on_delete_annotation)
+        self.right_drawer.close_requested.connect(self._on_right_panel_close)
         self.right_panel_stack.addWidget(self.right_drawer)     # index 1
 
         # Page Thumbnails Panel (Figma right drawer page 2)
@@ -196,7 +218,7 @@ class DocumentTab(QWidget):
         # TTS Controller
         self.tts_controller = TTSController(self)
         self.tts_controller.state_changed.connect(self._on_tts_state_changed)
-        self.tts_controller.progress_updated.connect(self.right_drawer.set_tts_progress)
+        self.tts_controller.progress_updated.connect(self._on_tts_progress)
         self.tts_controller.error_occurred.connect(self._on_tts_error)
 
         self.splitter.setStretchFactor(0, 0)
@@ -237,6 +259,7 @@ class DocumentTab(QWidget):
         if hasattr(self, "page_controls"):
             self.page_controls.update_page_info(self.current_page, page_count)
             self.page_controls.update_zoom_display(self.current_zoom)
+        self.right_drawer.set_document(self.doc_wrapper, self.file_path)
         self.right_drawer.ai_chat_panel.manager.index_document(self.doc_wrapper)
 
     def update_current_page_status(self):
@@ -562,6 +585,8 @@ class DocumentTab(QWidget):
                 f"Page {self.current_page} has no readable text or OCR content."
             )
             self.right_drawer.set_tts_state("idle")
+            if hasattr(self, "tts_player"):
+                self.tts_player.set_state("idle")
             return
 
         self.tts_controller.read_text(text, self.current_page, voice, speed)
@@ -572,12 +597,43 @@ class DocumentTab(QWidget):
     def stop_read_aloud(self):
         self.tts_controller.stop()
 
+    def toggle_tts_player(self):
+        """Toggle visibility of the TTS mini-player bar."""
+        if hasattr(self, "tts_player"):
+            self.tts_player.setVisible(not self.tts_player.isVisible())
+
+    def _on_tts_progress(self, current_ms: int, total_ms: int):
+        self.right_drawer.set_tts_progress(current_ms, total_ms)
+        if hasattr(self, "tts_player"):
+            self.tts_player.set_progress(current_ms, total_ms)
+
     def _on_tts_state_changed(self, state: str):
         self.right_drawer.set_tts_state(state, f"Page {self.current_page}")
+        if hasattr(self, "tts_player"):
+            self.tts_player.set_state(state, f"Page {self.current_page}")
 
     def _on_tts_error(self, err_msg: str):
         self.right_drawer.set_tts_state("idle")
+        if hasattr(self, "tts_player"):
+            self.tts_player.set_state("idle")
         QMessageBox.warning(self, "Read Aloud", err_msg)
+
+    def _on_floating_ai_clicked(self):
+        """Open Attachments & Details panel (where AI Assistant lives) and focus AI input."""
+        if self.right_panel_stack.isVisible() and self.right_panel_stack.currentIndex() == 1:
+            if hasattr(self.right_drawer, "ai_chat_panel") and self.right_drawer.ai_chat_panel.input_query.hasFocus():
+                self.right_panel_stack.setVisible(False)
+                self.right_nav_rail.set_active_tab(None)
+            else:
+                self.right_drawer.ai_chat_panel.input_query.setFocus()
+        else:
+            self.right_panel_stack.setCurrentIndex(1)
+            self.right_panel_stack.setVisible(True)
+            self.left_rail.close_drawer()
+            self.left_rail.setVisible(False)
+            self.right_nav_rail.set_active_tab("attachments")
+            if hasattr(self.right_drawer, "ai_chat_panel"):
+                self.right_drawer.ai_chat_panel.input_query.setFocus()
 
     # ==========================================
     # Export Suite Handlers
@@ -734,6 +790,8 @@ class DocumentTab(QWidget):
             self.thumbnails_panel.update_theme()
         if hasattr(self, "bookmarks_panel"):
             self.bookmarks_panel.update_theme()
+        if hasattr(self, "tts_player"):
+            self.tts_player.update_theme()
 
 
 class MainWindow(QMainWindow):
@@ -1168,10 +1226,16 @@ class MainWindow(QMainWindow):
     def focus_ai_copilot(self):
         tab = self._get_active_tab()
         if tab:
+            tab.right_panel_stack.setCurrentIndex(1)
+            tab.right_panel_stack.setVisible(True)
+            tab.left_rail.close_drawer()
+            tab.left_rail.setVisible(False)
+            tab.right_nav_rail.set_active_tab("attachments")
             sizes = tab.splitter.sizes()
             if len(sizes) > 2 and sizes[2] < 100:
-                tab.splitter.setSizes([sizes[0], max(100, sizes[1] - 260), 260])
-            tab.right_drawer.ai_chat_panel.input_query.setFocus()
+                tab.splitter.setSizes([sizes[0], max(100, sizes[1] - 268), 268])
+            if hasattr(tab.right_drawer, "ai_chat_panel"):
+                tab.right_drawer.ai_chat_panel.input_query.setFocus()
             self.status_bar.showMessage("AI Assistant ready - Ask questions or choose an action", 3000)
 
     def apply_theme(self):
