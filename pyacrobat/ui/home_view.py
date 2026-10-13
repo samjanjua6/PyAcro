@@ -92,6 +92,7 @@ class HomeView(QWidget):
     navigation_changed = Signal(str)
     file_selected = Signal(dict)
     view_mode_changed = Signal(str)
+    about_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -110,6 +111,7 @@ class HomeView(QWidget):
         self.left_rail.open_computer_requested.connect(self.open_file_requested.emit)
         self.left_rail.navigation_changed.connect(self.navigation_changed.emit)
         self.left_rail.navigation_changed.connect(self._on_navigation_changed)
+        self.left_rail.about_requested.connect(self.about_requested.emit)
         self.main_layout.addWidget(self.left_rail)
 
         # 2. Main Content Scroll Area

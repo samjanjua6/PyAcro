@@ -45,6 +45,7 @@ from pyacrobat.ui.pdf_canvas import PDFCanvas
 from pyacrobat.ui.organizer_grid import OrganizerGridWidget
 from pyacrobat.ui.merge_dialog import MergeDialog, SplitExtractDialog
 from pyacrobat.ui.ocr_dialog import OCRResultDialog
+from pyacrobat.ui.about_dialog import AboutDialog
 from pyacrobat.ui.home_view import HomeView
 from pyacrobat.core.recent_files import RecentFilesManager
 from pyacrobat.ui.edit_pdf_panel import EditPdfPanel
@@ -1462,6 +1463,7 @@ class MainWindow(QMainWindow):
         self.app_nav_bar.tab_close_requested.connect(self.close_tab)
         self.app_nav_bar.new_document_requested.connect(self.open_file_dialog)
         self.app_nav_bar.search_clicked.connect(self._trigger_find_in_doc)
+        self.app_nav_bar.help_clicked.connect(self._show_about_dialog)
         self.app_nav_bar.theme_toggle_requested.connect(self.toggle_theme)
 
         # Document Toolbar (Phase 3 Figma Spec #3:12957)
@@ -1492,6 +1494,7 @@ class MainWindow(QMainWindow):
         self.home_view.file_open_requested.connect(self.open_document)
         self.home_view.combine_files_requested.connect(self.open_merge_dialog)
         self.home_view.export_pdf_requested.connect(self._on_home_export_requested)
+        self.home_view.about_requested.connect(self._show_about_dialog)
 
         self.workspace_stack = QStackedWidget()
         self.workspace_stack.addWidget(self.home_view)
@@ -1974,14 +1977,8 @@ class MainWindow(QMainWindow):
             tab.rotate_current_page_ccw()
 
     def _show_about_dialog(self):
-        QMessageBox.about(
-            self,
-            "About PyAcrobat",
-            "<h3>Adobe Acrobat Style PyAcrobat</h3>"
-            "<p>A professional high-performance desktop PDF reader & workstation built with Python, PySide6, and PyMuPDF.</p>"
-            "<p><b>Version:</b> 1.0.0 (Phase 1 Redesign)</p>"
-            "<p>Featuring razor-sharp High-DPI rasterization, PDF annotations, OCR, Neural TTS, and AI Document Copilot.</p>"
-        )
+        dialog = AboutDialog(self)
+        dialog.exec()
 
     def setup_shortcuts(self):
         QShortcut(QKeySequence("Ctrl+O"), self, self.open_file_dialog)

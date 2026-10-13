@@ -134,6 +134,7 @@ class HomeLeftRail(QWidget):
 
     navigation_changed = Signal(str)  # 'recent', 'starred', 'computer', 'agreements'
     open_computer_requested = Signal()
+    about_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -195,6 +196,17 @@ class HomeLeftRail(QWidget):
         # Push items to top
         self.main_layout.addStretch(1)
 
+        # 4. Bottom Footer: About & Developer
+        self.main_layout.addWidget(self._create_divider())
+        self.main_layout.addSpacing(6)
+        self.btn_about = QPushButton("  About Adobe Acrobat")
+        self.btn_about.setObjectName("homeRailAboutBtn")
+        self.btn_about.setCursor(QCursor(Qt.PointingHandCursor))
+        self.btn_about.setIcon(load_themed_svg_icon("info.svg", "#626262", size=18))
+        self.btn_about.setFixedHeight(36)
+        self.btn_about.clicked.connect(self.about_requested.emit)
+        self.main_layout.addWidget(self.btn_about)
+
         # Default selection: 'recent'
         self.select_item("recent", emit_signal=False)
 
@@ -242,7 +254,24 @@ class HomeLeftRail(QWidget):
                 background-color: {divider_color};
                 border: none;
             }}
+            #homeRailAboutBtn {{
+                background-color: transparent;
+                color: {t.text_muted};
+                font-size: 12px;
+                font-weight: 500;
+                text-align: left;
+                padding-left: 10px;
+                border-radius: 4px;
+                border: none;
+            }}
+            #homeRailAboutBtn:hover {{
+                background-color: {"#F0F0F0" if not is_dark else t.surface_raised};
+                color: {t.text};
+            }}
         """)
+
+        if hasattr(self, "btn_about"):
+            self.btn_about.setIcon(load_themed_svg_icon("info.svg", header_color, size=18))
 
         for btn in self.items.values():
             btn.update_style()

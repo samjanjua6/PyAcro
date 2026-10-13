@@ -173,6 +173,17 @@ PyAcro/
 
 ---
 
+## About & Developer
+
+**PyAcro (Adobe Acrobat Workstation)** is designed and developed by **Shaheer Ul Hassan**.
+
+* **Developer:** Shaheer Ul Hassan
+* **Website:** [shaheerulhassan.com](https://shaheerulhassan.com)
+* **GitHub Repository:** [github.com/samjanjua6/PyAcro](https://github.com/samjanjua6/PyAcro)
+
+---
+
 ## License
 
 Distributed under the MIT License. See `LICENSE` for details.
+

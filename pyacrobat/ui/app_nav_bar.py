@@ -452,6 +452,7 @@ class AppNavBar(QWidget):
     tab_close_requested = Signal(int)      # 0-based index
     new_document_requested = Signal()
     search_clicked = Signal()
+    help_clicked = Signal()
     theme_toggle_requested = Signal()
 
     def __init__(self, parent=None):
@@ -529,7 +530,8 @@ class AppNavBar(QWidget):
         self.btn_bell = NavIconButton("bell", "Notifications")
         main_layout.addWidget(self.btn_bell)
 
-        self.btn_help = NavIconButton("help", "Help & Support")
+        self.btn_help = NavIconButton("help", "Help & About")
+        self.btn_help.clicked.connect(self.help_clicked.emit)
         main_layout.addWidget(self.btn_help)
 
         self.btn_theme = NavIconButton("theme", "Toggle Light / Dark Theme")
