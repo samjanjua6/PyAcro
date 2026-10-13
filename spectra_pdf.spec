@@ -15,6 +15,8 @@ project_root = os.path.abspath(SPECPATH)
 added_files = [
     (os.path.join(project_root, 'pyacrobat', 'resources'), 'resources'),
     (os.path.join(project_root, 'pyacrobat', 'resources'), os.path.join('pyacrobat', 'resources')),
+    (os.path.join(project_root, 'pyacrobat', 'assets'), 'assets'),
+    (os.path.join(project_root, 'pyacrobat', 'assets'), os.path.join('pyacrobat', 'assets')),
     (os.path.join(project_root, 'pyacrobat', 'tessdata'), 'tessdata'),
     (os.path.join(project_root, 'pyacrobat', 'tessdata'), os.path.join('pyacrobat', 'tessdata')),
 ]

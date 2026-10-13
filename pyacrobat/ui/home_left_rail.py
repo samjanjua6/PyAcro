@@ -18,11 +18,30 @@ from PySide6.QtSvg import QSvgRenderer
 from pyacrobat.ui.styles import ThemeManager
 
 
+def get_svg_icon_path(svg_name: str) -> Optional[str]:
+    """Resolves SVG icon path across resources and assets bundles."""
+    from pyacrobat.core.resources import get_icon_path, get_base_dir
+    # 1. Try resources/icons via central locator
+    path = get_icon_path(svg_name)
+    if os.path.exists(path):
+        return path
+    # 2. Try assets/icons and local fallbacks
+    base_dir = get_base_dir()
+    for sub in [
+        os.path.join(base_dir, "assets", "icons", svg_name),
+        os.path.join(base_dir, "pyacrobat", "assets", "icons", svg_name),
+        os.path.join(base_dir, "resources", "icons", svg_name),
+        os.path.join(base_dir, "pyacrobat", "resources", "icons", svg_name),
+    ]:
+        if os.path.exists(sub):
+            return sub
+    return None
+
+
 def load_themed_svg_icon(svg_name: str, color_hex: Optional[str] = None, size: int = 20) -> QIcon:
-    """Loads an SVG icon from assets/icons and optionally applies a stroke tint color."""
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    icon_path = os.path.join(base_dir, "assets", "icons", svg_name)
-    if not os.path.exists(icon_path):
+    """Loads an SVG icon from resources/assets and optionally applies a stroke tint color."""
+    icon_path = get_svg_icon_path(svg_name)
+    if not icon_path:
         return QIcon()
     try:
         with open(icon_path, "r", encoding="utf-8") as f:
@@ -35,16 +54,16 @@ def load_themed_svg_icon(svg_name: str, color_hex: Optional[str] = None, size: i
         painter = QPainter(pixmap)
         renderer.render(painter)
         painter.end()
+        pixmap.setDevicePixelRatio(2.0)
         return QIcon(pixmap)
     except Exception:
         return QIcon(icon_path)
 
 
 def load_themed_svg_pixmap(svg_name: str, color_hex: Optional[str] = None, size: int = 23) -> QPixmap:
-    """Loads an SVG icon from assets/icons and returns a High-DPI QPixmap."""
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    icon_path = os.path.join(base_dir, "assets", "icons", svg_name)
-    if not os.path.exists(icon_path):
+    """Loads an SVG icon from resources/assets and returns a High-DPI QPixmap."""
+    icon_path = get_svg_icon_path(svg_name)
+    if not icon_path:
         return QPixmap()
     try:
         with open(icon_path, "r", encoding="utf-8") as f:
