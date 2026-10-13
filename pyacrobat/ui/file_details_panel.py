@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QToolButton,
-    QFrame, QGraphicsDropShadowEffect, QApplication, QMenu
+    QFrame, QGraphicsDropShadowEffect, QApplication, QMenu, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal, QSize, QPoint
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QFont, QFontMetrics, QColor, QPen
@@ -138,6 +138,12 @@ class FileDetailsPanel(QFrame):
         self.init_ui()
         self.update_theme()
 
+    def minimumSizeHint(self) -> QSize:
+        return QSize(276, super().minimumSizeHint().height())
+
+    def sizeHint(self) -> QSize:
+        return QSize(276, super().sizeHint().height())
+
     def init_ui(self):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(20, 20, 20, 20)
@@ -209,10 +215,13 @@ class FileDetailsPanel(QFrame):
         self.lbl_filename = QLabel("Northstar_Proposal.pdf")
         self.lbl_filename.setObjectName("detailsFilename")
         self.lbl_filename.setWordWrap(True)
+        self.lbl_filename.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.main_layout.addWidget(self.lbl_filename)
 
         self.lbl_meta = QLabel("PDF document • 8 pages • 2.4 MB")
         self.lbl_meta.setObjectName("detailsMetaText")
+        self.lbl_meta.setWordWrap(True)
+        self.lbl_meta.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.main_layout.addWidget(self.lbl_meta)
 
         # ==========================================
@@ -234,11 +243,14 @@ class FileDetailsPanel(QFrame):
 
         self.lbl_modified = QLabel("Modified Oct 9, 2026 at 10:42 AM")
         self.lbl_modified.setObjectName("detailsModified")
+        self.lbl_modified.setWordWrap(True)
+        self.lbl_modified.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         mc_layout.addWidget(self.lbl_modified)
 
         self.lbl_path = QLabel("Documents / Riverside Workplace")
         self.lbl_path.setObjectName("detailsPath")
         self.lbl_path.setWordWrap(True)
+        self.lbl_path.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         mc_layout.addWidget(self.lbl_path)
 
         self.main_layout.addWidget(meta_col)

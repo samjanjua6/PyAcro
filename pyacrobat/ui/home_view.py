@@ -8,7 +8,8 @@ import getpass
 from typing import List
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QScrollArea
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
+    QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal, QSize
 
@@ -41,6 +42,8 @@ class QuickActionCard(QFrame):
 
         self.setObjectName("quickActionCard")
         self.setFixedHeight(132)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.setMinimumWidth(120)
         self.setCursor(Qt.PointingHandCursor)
 
         layout = QVBoxLayout(self)
@@ -114,13 +117,14 @@ class HomeView(QWidget):
         self.scroll_area.setObjectName("homeScrollArea")
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.NoFrame)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
         self.content_container = QWidget()
         self.content_container.setObjectName("homeContentArea")
+        self.content_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self.content_layout = QVBoxLayout(self.content_container)
-        self.content_layout.setContentsMargins(36, 24, 36, 18)
-        self.content_layout.setSpacing(24)
+        self.content_layout.setContentsMargins(28, 20, 28, 18)
+        self.content_layout.setSpacing(20)
         self.content_layout.setAlignment(Qt.AlignTop)
 
         # ==========================================
@@ -134,6 +138,7 @@ class HomeView(QWidget):
         welcome_layout.setAlignment(Qt.AlignVCenter)
 
         greeting_col = QWidget()
+        greeting_col.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         greeting_layout = QVBoxLayout(greeting_col)
         greeting_layout.setContentsMargins(0, 0, 0, 0)
         greeting_layout.setSpacing(7)
@@ -147,10 +152,15 @@ class HomeView(QWidget):
 
         self.header_label = QLabel(f"Welcome back, {username}")
         self.header_label.setObjectName("welcomeTitle")
+        self.header_label.setWordWrap(True)
+        self.header_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         greeting_layout.addWidget(self.header_label)
 
         self.subtitle_label = QLabel("Pick up where you left off, or start something new.")
         self.subtitle_label.setObjectName("welcomeSubtitle")
+        self.subtitle_label.setWordWrap(True)
+        self.subtitle_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.subtitle_label.setMinimumWidth(0)
         greeting_layout.addWidget(self.subtitle_label)
 
         welcome_layout.addWidget(greeting_col, 1)
@@ -159,6 +169,7 @@ class HomeView(QWidget):
         self.btn_open.setObjectName("welcomeOpenBtn")
         self.btn_open.setCursor(Qt.PointingHandCursor)
         self.btn_open.setFixedHeight(34)
+        self.btn_open.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.btn_open.setIcon(load_themed_svg_icon("folder-open.svg", "#FFFFFF", size=16))
         self.btn_open.setIconSize(QSize(16, 16))
         self.btn_open.clicked.connect(self.open_file_requested.emit)
@@ -229,6 +240,11 @@ class HomeView(QWidget):
         """Selects a navigation item on the rail programmatically."""
         if hasattr(self, "left_rail"):
             self.left_rail.select_item(category)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "recent_table") and getattr(self.recent_table, "current_view_mode", "list") == "grid":
+            self.recent_table._relayout_grid()
 
     def update_theme(self):
         t = ThemeManager.get_tokens()

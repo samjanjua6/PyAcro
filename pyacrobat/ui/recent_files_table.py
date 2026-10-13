@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
     QHeaderView, QCheckBox, QToolButton, QAbstractItemView, QPushButton,
     QStyledItemDelegate, QStyle, QMenu, QApplication, QLineEdit,
-    QStackedWidget, QGridLayout, QFrame
+    QStackedWidget, QGridLayout, QFrame, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal, QSize, QRect, QPoint
 from PySide6.QtGui import QIcon, QCursor, QFont, QPainter, QFontMetrics, QColor, QPen, QPixmap
@@ -307,6 +307,28 @@ class RecentFileGridCard(QFrame):
         self.render_thumbnail()
 
 
+class ResponsiveStackedWidget(QStackedWidget):
+    """
+    QStackedWidget that reports minimumSizeHint based on the active widget
+    rather than the maximum across all stacked pages.
+    """
+
+    def minimumSizeHint(self) -> QSize:
+        w = self.currentWidget()
+        if w:
+            hint = w.minimumSizeHint()
+            if w.objectName() == "recentGridContainer":
+                return QSize(172, hint.height())
+            return hint
+        return super().minimumSizeHint()
+
+    def sizeHint(self) -> QSize:
+        w = self.currentWidget()
+        if w:
+            return w.sizeHint()
+        return super().sizeHint()
+
+
 class RecentFilesTable(QWidget):
     """
     Recent documents section matching Figma specs:
@@ -392,6 +414,7 @@ class RecentFilesTable(QWidget):
         # Left: Heading & Count (Figma: node 3:12792)
         self.lbl_title = QLabel("Recent documents")
         self.lbl_title.setObjectName("recentHeadingTitle")
+        self.lbl_title.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         h_layout.addWidget(self.lbl_title)
 
         self.lbl_count = QLabel(str(len(self.files_data)))
@@ -459,7 +482,7 @@ class RecentFilesTable(QWidget):
         # ==========================================
         # 2. View Stack (List Table & Grid Workspace)
         # ==========================================
-        self.view_stack = QStackedWidget()
+        self.view_stack = ResponsiveStackedWidget()
         self.view_stack.setObjectName("recentViewStack")
 
         # Page 0: Table Widget (Figma: node 3:12802)
@@ -490,8 +513,8 @@ class RecentFilesTable(QWidget):
         header.setSectionResizeMode(4, QHeaderView.Fixed)
 
         self.table.setColumnWidth(0, 36)
-        self.table.setColumnWidth(2, 160)
-        self.table.setColumnWidth(3, 100)
+        self.table.setColumnWidth(2, 140)
+        self.table.setColumnWidth(3, 80)
         self.table.setColumnWidth(4, 38)
 
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -506,6 +529,8 @@ class RecentFilesTable(QWidget):
         # Page 1: Grid Container (Phase 9)
         self.grid_container = QWidget()
         self.grid_container.setObjectName("recentGridContainer")
+        self.grid_container.setMinimumSize(0, 0)
+        self.grid_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self.grid_layout = QGridLayout(self.grid_container)
         self.grid_layout.setContentsMargins(0, 4, 0, 4)
         self.grid_layout.setSpacing(16)
@@ -523,6 +548,8 @@ class RecentFilesTable(QWidget):
 
         self.lbl_footer_count = QLabel(f"Showing {len(self.files_data)} of {len(self.files_data)} recent files")
         self.lbl_footer_count.setObjectName("recentFooterText")
+        self.lbl_footer_count.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.lbl_footer_count.setMinimumWidth(0)
         f_layout.addWidget(self.lbl_footer_count)
 
         f_layout.addStretch(1)
@@ -541,7 +568,7 @@ class RecentFilesTable(QWidget):
         workspace_widget.setObjectName("recentWorkspace")
         ws_layout = QHBoxLayout(workspace_widget)
         ws_layout.setContentsMargins(0, 0, 0, 0)
-        ws_layout.setSpacing(24)
+        ws_layout.setSpacing(16)
         ws_layout.setAlignment(Qt.AlignTop)
 
         # Left Column: View Stack + Footer
@@ -630,7 +657,7 @@ class RecentFilesTable(QWidget):
                     child.widget().deleteLater()
             self.grid_cards.clear()
 
-            cols = 4
+            cols = self._calculate_grid_cols()
             for i, item_data in enumerate(self.files_data):
                 card = RecentFileGridCard(item_data, self)
                 card.clicked.connect(self._on_grid_card_clicked)
@@ -659,10 +686,38 @@ class RecentFilesTable(QWidget):
         if hasattr(self, "search_input") and self.search_input.text():
             self._on_search_query_changed(self.search_input.text())
 
+    def _calculate_grid_cols(self) -> int:
+        """Dynamically calculates the number of grid card columns that fit the available width."""
+        vp_w = 0
+        p = self.parent()
+        while p:
+            if hasattr(p, "viewport") and callable(p.viewport):
+                vp_w = p.viewport().width()
+                break
+            p = p.parent()
+
+        dp_w = (self.details_panel.width() + 16) if hasattr(self, "details_panel") and not self.details_panel.isHidden() else 0
+
+        if vp_w > 0:
+            avail_w = vp_w - 56 - dp_w - 10
+        elif hasattr(self, "view_stack") and self.view_stack.width() > 100:
+            avail_w = self.view_stack.width()
+        elif hasattr(self, "width") and self.width() > 300:
+            avail_w = self.width() - dp_w - 32
+        else:
+            avail_w = 0
+
+        card_w = 172
+        gap = 16
+        if avail_w <= 0:
+            return 4
+        cols = max(1, min(4, int((avail_w + gap) // (card_w + gap))))
+        return cols
+
     def _adjust_grid_dimensions(self, visible_count: int = -1):
         if visible_count < 0:
             visible_count = sum(1 for c in self.grid_cards if not c.isHidden())
-        cols = 4
+        cols = self._calculate_grid_cols()
         rows = (visible_count + cols - 1) // cols if visible_count > 0 else 0
         card_h = 214
         gap = 16
@@ -676,7 +731,7 @@ class RecentFilesTable(QWidget):
         while self.grid_layout.count():
             self.grid_layout.takeAt(0)
 
-        cols = 4
+        cols = self._calculate_grid_cols()
         visible_cards = [c for c in self.grid_cards if not c.isHidden()]
         for i, card in enumerate(visible_cards):
             r = i // cols
@@ -684,6 +739,11 @@ class RecentFilesTable(QWidget):
             self.grid_layout.addWidget(card, r, c)
 
         self._adjust_grid_dimensions(len(visible_cards))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "current_view_mode") and self.current_view_mode == "grid":
+            self._relayout_grid()
 
     def _on_grid_card_clicked(self, file_data: dict):
         for card in self.grid_cards:
@@ -729,6 +789,7 @@ class RecentFilesTable(QWidget):
                 self.view_stack.setCurrentIndex(0)
             else:
                 self.view_stack.setCurrentIndex(1)
+                self._relayout_grid()
         self.view_mode_changed.emit(mode)
 
     def _update_view_toggle_styles(self):
