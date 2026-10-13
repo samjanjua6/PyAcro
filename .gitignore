@@ -8,10 +8,15 @@ __pycache__/
 venv/
 env/
 
+# Test scripts & scratch harnesses
+test_*.py
+create_sample_pdf.py
+
 # Test screenshots & verification images
 /*.png
 
-# Temporary test PDF outputs
+# Test PDF files & outputs
+sample.pdf
 merge.pdf
 p1.pdf
 
