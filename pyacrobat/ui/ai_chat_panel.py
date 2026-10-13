@@ -215,6 +215,7 @@ class AIChatPanel(QWidget):
         self.input_query = QLineEdit()
         self.input_query.setPlaceholderText("Ask about this document...")
         self.input_query.returnPressed.connect(self._on_send_clicked)
+        self.input_edit = self.input_query
         input_row.addWidget(self.input_query)
 
         self.btn_send = QPushButton("Ask")
