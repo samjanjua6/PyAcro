@@ -1,0 +1,22 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test screenshots & verification images
+/*.png
+
+# Temporary test PDF outputs
+merge.pdf
+p1.pdf
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
