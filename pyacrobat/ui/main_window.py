@@ -1399,7 +1399,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, start_dark: bool = False):
         super().__init__()
-        self.setWindowTitle("Adobe Acrobat")
+        self.setWindowTitle("Spectra PDF")
         app_icon = get_app_icon()
         self.setWindowIcon(app_icon)
         app = QApplication.instance()
@@ -1725,19 +1725,19 @@ class MainWindow(QMainWindow):
         # 5. Help Menu
         self.menu_help = menu_bar.addMenu("&Help")
 
-        self.action_ai_assistant = QAction("Acrobat &AI Document Assistant", self)
+        self.action_ai_assistant = QAction("Spectra &AI Document Assistant", self)
         self.action_ai_assistant.setShortcut(QKeySequence("Ctrl+I"))
         self.action_ai_assistant.triggered.connect(self.focus_ai_copilot)
         self.menu_help.addAction(self.action_ai_assistant)
 
         self.menu_help.addSeparator()
 
-        self.action_about = QAction("&About PyAcrobat", self)
+        self.action_about = QAction("&About Spectra PDF", self)
         self.action_about.triggered.connect(self._show_about_dialog)
         self.menu_help.addAction(self.action_about)
 
-        # Top-Right Document Title in Menu Bar (Matches Figma: Northstar_Proposal.pdf — Adobe Acrobat)
-        self.menu_title_label = QLabel("Adobe Acrobat")
+        # Top-Right Document Title in Menu Bar
+        self.menu_title_label = QLabel("Spectra PDF")
         self.menu_title_label.setObjectName("menuTitleLabel")
         menu_bar.setCornerWidget(self.menu_title_label, Qt.TopRightCorner)
 
@@ -1767,9 +1767,9 @@ class MainWindow(QMainWindow):
         self.workspace_stack.setCurrentIndex(0)
         self.quick_tools.setVisible(False)
         self._set_document_actions_enabled(False)
-        self.status_bar.showMessage("Home | PyAcrobat Workstation")
-        self.setWindowTitle("Adobe Acrobat")
-        self._set_menu_title("Adobe Acrobat")
+        self.status_bar.showMessage("Home | Spectra PDF Workstation")
+        self.setWindowTitle("Spectra PDF")
+        self._set_menu_title("Spectra PDF")
         if hasattr(self, "app_nav_bar"):
             self.app_nav_bar.set_home_active()
 
@@ -2108,8 +2108,8 @@ class MainWindow(QMainWindow):
             tab.view_mode_changed.connect(lambda is_org: self._on_tab_view_mode_changed(tab, is_org))
 
             tab_title = os.path.basename(file_path)
-            self.setWindowTitle(f"{tab_title} — Adobe Acrobat")
-            self._set_menu_title(f"{tab_title} — Adobe Acrobat")
+            self.setWindowTitle(f"{tab_title} — Spectra PDF")
+            self._set_menu_title(f"{tab_title} — Spectra PDF")
             idx = self.tab_widget.addTab(tab, tab_title)
             if hasattr(self, "app_nav_bar"):
                 self.app_nav_bar.add_document_tab(tab_title, file_path)
@@ -2283,8 +2283,8 @@ class MainWindow(QMainWindow):
         if tab:
             self.undo_group.setActiveStack(tab.undo_stack)
             doc_name = os.path.basename(tab.file_path)
-            self.setWindowTitle(f"{doc_name} — Adobe Acrobat")
-            self._set_menu_title(f"{doc_name} — Adobe Acrobat")
+            self.setWindowTitle(f"{doc_name} — Spectra PDF")
+            self._set_menu_title(f"{doc_name} — Spectra PDF")
             is_org = tab.is_organize_view_active()
             self.btn_toggle_organize.setText("Document View" if is_org else "Organize Pages")
             self.quick_tools.setVisible(not is_org)
@@ -2295,8 +2295,8 @@ class MainWindow(QMainWindow):
                 self.app_nav_bar.set_active_document_tab(index)
         else:
             self.undo_group.setActiveStack(None)
-            self.setWindowTitle("Adobe Acrobat")
-            self._set_menu_title("Adobe Acrobat")
+            self.setWindowTitle("Spectra PDF")
+            self._set_menu_title("Spectra PDF")
             if hasattr(self, "app_nav_bar"):
                 self.app_nav_bar.set_home_active()
         self._update_status_bar_info()
@@ -2316,10 +2316,10 @@ class MainWindow(QMainWindow):
             self.workspace_stack.setCurrentIndex(0)
             self.quick_tools.setVisible(False)
             self._set_document_actions_enabled(False)
-            self.status_bar.showMessage("Home | PyAcrobat Workstation")
-            self.setWindowTitle("Adobe Acrobat")
+            self.status_bar.showMessage("Home | Spectra PDF Workstation")
+            self.setWindowTitle("Spectra PDF")
             if hasattr(self, "menu_title_label"):
-                self.menu_title_label.setText("Adobe Acrobat")
+                self.menu_title_label.setText("Spectra PDF")
             if hasattr(self, "app_nav_bar"):
                 self.app_nav_bar.set_home_active()
         self._update_status_bar_info()

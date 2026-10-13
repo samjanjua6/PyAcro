@@ -1,7 +1,7 @@
-# PyAcro (PyAcrobat)
+# Spectra PDF
 
 <p align="center">
-  <strong>An Adobe Acrobat Pro-inspired, High-Performance PDF Workstation built with Python 3 & PySide6 (Qt6).</strong>
+  <strong>An Advanced High-Performance Desktop PDF Workstation built with Python 3 & PySide6 (Qt6).</strong>
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 
 ## Overview
 
-**PyAcro** is an open-source, desktop PDF productivity workstation engineered to replicate the polish, responsiveness, and capabilities of **Adobe Acrobat Pro**. 
+**Spectra PDF** is an open-source, desktop PDF productivity workstation engineered with the polish, responsiveness, and capabilities of modern professional document suites. 
 
 Designed with a strict architectural separation between core engines and UI components, PyAcro delivers a desktop experience featuring **High-DPI razor-sharp rasterization**, an **interactive Organize Pages workstation with fluid card-sliding physics**, **ISO 32000-compliant annotation serialization**, **embedded Tesseract OCR**, **Neural Read Aloud (Edge-TTS)**, and an **in-memory AI Document Copilot** with clickable page citations.
 
@@ -175,7 +175,7 @@ PyAcro/
 
 ## About & Developer
 
-**PyAcro (Adobe Acrobat Workstation)** is designed and developed by **Shaheer Ul Hassan**.
+**Spectra PDF** is designed and developed by **Shaheer Ul Hassan**.
 
 * **Developer:** Shaheer Ul Hassan
 * **Website:** [shaheerulhassan.com](https://shaheerulhassan.com)

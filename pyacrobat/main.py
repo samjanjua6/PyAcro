@@ -17,7 +17,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = "adobe.pyacrobat.workstation.1.0"
+            myappid = "spectra.pdf.workstation.1.0"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass
@@ -28,8 +28,8 @@ def main():
     )
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Adobe Acrobat")
-    app.setOrganizationName("Adobe")
+    app.setApplicationName("Spectra PDF")
+    app.setOrganizationName("Spectra")
     app.setWindowIcon(get_app_icon())
 
     window = MainWindow()

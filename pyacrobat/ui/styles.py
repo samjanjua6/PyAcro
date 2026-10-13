@@ -609,11 +609,16 @@ ACROBAT_LIGHT_THEME = generate_theme_stylesheet(LIGHT_TOKENS)
 
 
 def get_app_icon() -> QIcon:
-    """Returns the multi-resolution Adobe Acrobat application QIcon."""
+    """Returns the multi-resolution Spectra PDF application QIcon."""
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    ico_path = os.path.join(base_dir, "resources", "icons", "adobe_acrobat.ico")
-    png_path = os.path.join(base_dir, "resources", "icons", "adobe_acrobat.png")
-    svg_path = os.path.join(base_dir, "resources", "icons", "adobe_acrobat.svg")
+    ico_path = os.path.join(base_dir, "resources", "icons", "spectra_icon.ico")
+    png_path = os.path.join(base_dir, "resources", "icons", "spectra_icon.png")
+    svg_path = os.path.join(base_dir, "resources", "icons", "spectra_icon.svg")
+
+    if not os.path.exists(ico_path):
+        ico_path = os.path.join(base_dir, "resources", "icons", "adobe_acrobat.ico")
+        png_path = os.path.join(base_dir, "resources", "icons", "adobe_acrobat.png")
+        svg_path = os.path.join(base_dir, "resources", "icons", "adobe_acrobat.svg")
 
     icon = QIcon()
     if os.path.exists(ico_path):

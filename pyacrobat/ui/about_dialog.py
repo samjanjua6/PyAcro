@@ -24,7 +24,7 @@ class AboutDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("About Adobe Acrobat")
+        self.setWindowTitle("About Spectra PDF")
         self.setWindowIcon(get_app_icon())
         self.setModal(True)
         self.setFixedSize(460, 540)
@@ -61,7 +61,7 @@ class AboutDialog(QDialog):
         tc_layout.setSpacing(4)
         tc_layout.setAlignment(Qt.AlignVCenter)
 
-        self.lbl_title = QLabel("Adobe Acrobat")
+        self.lbl_title = QLabel("Spectra PDF")
         self.lbl_title.setObjectName("aboutTitle")
         font_title = QFont("Inter", 18, QFont.Bold)
         self.lbl_title.setFont(font_title)

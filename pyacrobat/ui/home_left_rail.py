@@ -199,7 +199,7 @@ class HomeLeftRail(QWidget):
         # 4. Bottom Footer: About & Developer
         self.main_layout.addWidget(self._create_divider())
         self.main_layout.addSpacing(6)
-        self.btn_about = QPushButton("  About Adobe Acrobat")
+        self.btn_about = QPushButton("  About Spectra PDF")
         self.btn_about.setObjectName("homeRailAboutBtn")
         self.btn_about.setCursor(QCursor(Qt.PointingHandCursor))
         self.btn_about.setIcon(load_themed_svg_icon("info.svg", "#626262", size=18))

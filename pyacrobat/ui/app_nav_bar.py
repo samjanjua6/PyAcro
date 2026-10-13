@@ -53,7 +53,9 @@ class AcrobatMarkWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(30, 32)
-        svg_path = os.path.join(ICONS_DIR, "adobe_acrobat.svg")
+        svg_path = os.path.join(ICONS_DIR, "spectra_icon.svg")
+        if not os.path.exists(svg_path):
+            svg_path = os.path.join(ICONS_DIR, "adobe_acrobat.svg")
         self.renderer = QSvgRenderer(svg_path) if os.path.exists(svg_path) else None
 
     def paintEvent(self, event: QPaintEvent):
@@ -481,7 +483,7 @@ class AppNavBar(QWidget):
         self.mark = AcrobatMarkWidget()
         b_layout.addWidget(self.mark)
 
-        self.brand_label = QLabel("Adobe Acrobat")
+        self.brand_label = QLabel("Spectra PDF")
         self.brand_label.setFont(QFont("Inter", 12, QFont.DemiBold))
         b_layout.addWidget(self.brand_label)
 
