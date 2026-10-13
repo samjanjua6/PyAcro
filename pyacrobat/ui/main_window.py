@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QToolButton, QLabel, QApplication, QStackedWidget, QMenu, QMenuBar
 )
 from PySide6.QtCore import Qt, Signal, QRect
-from PySide6.QtGui import QAction, QImage, QKeySequence, QShortcut, QFont
+from PySide6.QtGui import QAction, QImage, QKeySequence, QShortcut, QFont, QUndoStack, QUndoGroup
 
 from pyacrobat.core.pdf_document import PDFDocument
 from pyacrobat.core.ocr_engine import OCREngine, OCRWorker
@@ -41,6 +41,24 @@ from pyacrobat.ui.merge_dialog import MergeDialog, SplitExtractDialog
 from pyacrobat.ui.ocr_dialog import OCRResultDialog
 from pyacrobat.ui.home_view import HomeView
 from pyacrobat.core.recent_files import RecentFilesManager
+from pyacrobat.ui.edit_pdf_panel import EditPdfPanel
+from pyacrobat.core.pdf_editor import FontStyle, ContentBlock
+from pyacrobat.ui.page_utility_dialogs import (
+    HeaderFooterDialog, WatermarkDialog, CropPagesDialog, LinkDialog
+)
+from pyacrobat.core.undo_commands import (
+    PageSnapshotManager,
+    PageSnapshotCommand,
+    RotatePageCommand,
+    CropPageCommand,
+    DeletePagesCommand,
+    InsertBlankPageCommand,
+    DuplicatePageCommand,
+    ReorderPagesCommand,
+    AddAnnotationCommand,
+    DeleteAnnotationCommand,
+    AddLinkCommand
+)
 
 
 class ViewportContainer(QWidget):
@@ -49,6 +67,10 @@ class ViewportContainer(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("documentViewportContainer")
+
+    def minimumSizeHint(self):
+        from PySide6.QtCore import QSize
+        return QSize(350, 200)
 
 
 class DocumentTab(QWidget):
@@ -71,9 +93,61 @@ class DocumentTab(QWidget):
         self.highlight_color = (1.0, 0.88, 0.3)
         self.draw_color = (0.88, 0.15, 0.11)
         self.draw_width = 2.0
+        self.is_edit_mode = False
+
+        self.undo_stack = QUndoStack(self)
+        self.undo_stack.setUndoLimit(50)
+        self.undo_stack.cleanChanged.connect(self._on_undo_clean_changed)
 
         self.init_ui()
         self.load_document()
+
+    def _on_undo_clean_changed(self, is_clean: bool):
+        is_dirty = not is_clean
+        self.doc_wrapper.is_dirty = is_dirty
+        self.dirty_state_changed.emit(is_dirty)
+
+    def undo(self):
+        """Undoes the most recent action on this document."""
+        if self.undo_stack.canUndo():
+            self.undo_stack.undo()
+
+    def redo(self):
+        """Redoes the most recent undone action on this document."""
+        if self.undo_stack.canRedo():
+            self.undo_stack.redo()
+
+    def _on_undo_redo_modified(self, affected_pages: List[int], structure_changed: bool = False):
+        if structure_changed:
+            page_count = self.doc_wrapper.page_count
+            self.current_page = max(1, min(page_count, self.current_page))
+            if self.is_organize_view_active():
+                self.show_organize_view()
+            else:
+                self.canvas.setup_pages(page_count)
+                self.render_all_pages()
+                self.refresh_sidebars()
+                self.go_to_page(self.current_page)
+                if self.is_edit_mode:
+                    self.load_content_blocks()
+            if hasattr(self, "page_controls"):
+                self.page_controls.update_page_info(self.current_page, page_count)
+        else:
+            if self.is_organize_view_active():
+                self.show_organize_view()
+            else:
+                pages_to_render = affected_pages if affected_pages else list(range(self.doc_wrapper.page_count))
+                for p in pages_to_render:
+                    if 0 <= p < self.doc_wrapper.page_count:
+                        self.re_render_page(p)
+                        if self.is_edit_mode:
+                            self.canvas.set_page_content_blocks(p, self.doc_wrapper.get_content_blocks(p))
+                self.refresh_annotations_feed()
+                self.update_current_page_status()
+
+        win = self.window()
+        if win and hasattr(win, "_update_status_bar_info"):
+            win._update_status_bar_info()
 
     def get_screen_dpr_and_dpi(self) -> Tuple[float, float]:
         screen = self.screen() or QApplication.primaryScreen()
@@ -99,6 +173,17 @@ class DocumentTab(QWidget):
         self.all_tools_panel.collapse_requested.connect(self.toggle_all_tools_panel)
         self.all_tools_panel.tool_selected.connect(self._on_all_tool_action)
         rv_layout.addWidget(self.all_tools_panel)
+
+        # Edit PDF Tool Drawer (284px fixed, Figma #3:13204)
+        self.edit_pdf_panel = EditPdfPanel(self)
+        self.edit_pdf_panel.setVisible(False)
+        self.edit_pdf_panel.close_requested.connect(self._on_edit_panel_closed)
+        self.edit_pdf_panel.tool_selected.connect(self._on_edit_tool_selected)
+        self.edit_pdf_panel.font_style_changed.connect(self._on_panel_font_style_changed)
+        self.edit_pdf_panel.header_footer_requested.connect(self._on_edit_header_footer)
+        self.edit_pdf_panel.watermark_requested.connect(self._on_edit_watermark)
+        self.edit_pdf_panel.crop_requested.connect(self._on_edit_crop)
+        rv_layout.addWidget(self.edit_pdf_panel)
 
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setChildrenCollapsible(True)
@@ -157,6 +242,15 @@ class DocumentTab(QWidget):
         self.canvas.highlight_requested.connect(self._on_highlight_created)
         self.canvas.ink_requested.connect(self._on_ink_drawn)
         self.canvas.note_requested.connect(self._on_note_created)
+
+        # Canvas Edit Mode Signal Wiring
+        self.edit_pdf_panel.bounding_boxes_toggled.connect(self.canvas.set_show_bounding_boxes)
+        self.canvas.block_selected.connect(self._on_canvas_block_selected)
+        self.canvas.block_text_edited.connect(self._on_canvas_block_text_edited)
+        self.canvas.block_font_style_changed.connect(self._on_canvas_block_font_style_changed)
+        self.canvas.block_rect_changed.connect(self._on_canvas_block_rect_changed)
+        self.canvas.new_textbox_requested.connect(self._on_canvas_new_textbox_requested)
+
         vp_layout.addWidget(self.canvas)
 
         self.splitter.addWidget(self.viewport_container)
@@ -167,7 +261,8 @@ class DocumentTab(QWidget):
         # Page 1 = RightDrawerWidget (Power Suite: OCR, TTS, Export, AI)
         self.right_panel_stack = QStackedWidget()
         self.right_panel_stack.setObjectName("rightPanelStack")
-        self.right_panel_stack.setFixedWidth(268)
+        self.right_panel_stack.setMinimumWidth(260)
+        self.right_panel_stack.setMaximumWidth(650)
 
         # CommentsPanel (Figma-faithful, primary view)
         self.comments_panel = CommentsPanel()
@@ -224,7 +319,7 @@ class DocumentTab(QWidget):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
-        self.splitter.setSizes([0, 780, 268])
+        self.splitter.setSizes([0, 750, 310])
 
         rv_layout.addWidget(self.splitter)
 
@@ -246,6 +341,11 @@ class DocumentTab(QWidget):
         self.organizer_grid.duplicate_requested.connect(self._on_duplicate_pages)
         self.organizer_grid.merge_requested.connect(self._on_merge_external)
         self.organizer_grid.extract_requested.connect(self._on_extract_pages)
+        self.organizer_grid.replace_requested.connect(self._on_replace_grid_pages)
+        self.organizer_grid.split_requested.connect(self._on_split_grid_pages)
+        self.organizer_grid.crop_requested.connect(self._on_crop_grid_pages)
+        self.organizer_grid.page_labels_requested.connect(self._on_page_labels_requested)
+        self.organizer_grid.right_nav_rail.tab_selected.connect(self._on_organizer_nav_tab_selected)
         self.stack.addWidget(self.organizer_grid)
 
         layout.addWidget(self.stack)
@@ -311,7 +411,9 @@ class DocumentTab(QWidget):
             self.doc_wrapper.render_thumbnail(i, target_width=170)
             for i in range(self.doc_wrapper.page_count)
         ]
-        self.organizer_grid.populate_grid(thumbnails)
+        file_name = os.path.basename(self.file_path) if self.file_path else "Document.pdf"
+        toc = self.doc_wrapper.get_toc()
+        self.organizer_grid.populate_grid(thumbnails, file_name=file_name, bookmarks=toc)
         self.stack.setCurrentIndex(1)
         self.view_mode_changed.emit(True)
 
@@ -332,29 +434,61 @@ class DocumentTab(QWidget):
     # ==========================================
 
     def _on_reorder_pages(self, new_order: List[int]):
-        self.doc_wrapper.reorder_pages(new_order)
-        self.dirty_state_changed.emit(True)
+        cmd = ReorderPagesCommand(
+            self.doc_wrapper,
+            new_order,
+            on_modified=self._on_undo_redo_modified,
+            already_executed=False
+        )
+        self.undo_stack.push(cmd)
 
     def _on_rotate_grid_pages(self, page_indices: List[int], degrees: int):
-        self.doc_wrapper.rotate_pages(page_indices, degrees)
-        self.show_organize_view()
-        self.dirty_state_changed.emit(True)
+        cmd = RotatePageCommand(
+            self.doc_wrapper,
+            page_indices,
+            degrees,
+            on_modified=self._on_undo_redo_modified,
+            already_executed=False
+        )
+        self.undo_stack.push(cmd)
 
     def _on_delete_grid_pages(self, page_indices: List[int]):
-        if self.doc_wrapper.delete_pages(page_indices):
-            self.show_organize_view()
-            self.dirty_state_changed.emit(True)
+        if len(page_indices) >= self.doc_wrapper.page_count:
+            QMessageBox.warning(self, "Cannot Delete", "Cannot delete all pages in the document.")
+            return
+        cmd = DeletePagesCommand(
+            self.doc_wrapper,
+            page_indices,
+            on_modified=self._on_undo_redo_modified,
+            already_executed=False
+        )
+        self.undo_stack.push(cmd)
 
     def _on_insert_blank_page(self, at_index: int):
-        self.doc_wrapper.insert_blank_page(at_index)
-        self.show_organize_view()
-        self.dirty_state_changed.emit(True)
+        clamped_idx = max(0, min(self.doc_wrapper.page_count, at_index))
+        cmd = InsertBlankPageCommand(
+            self.doc_wrapper,
+            clamped_idx,
+            on_modified=self._on_undo_redo_modified,
+            already_executed=False
+        )
+        self.undo_stack.push(cmd)
 
     def _on_duplicate_pages(self, page_indices: List[int]):
+        if not page_indices:
+            return
+        if len(page_indices) > 1:
+            self.undo_stack.beginMacro(f"Duplicate {len(page_indices)} Pages")
         for idx in sorted(page_indices, reverse=True):
-            self.doc_wrapper.duplicate_page(idx)
-        self.show_organize_view()
-        self.dirty_state_changed.emit(True)
+            cmd = DuplicatePageCommand(
+                self.doc_wrapper,
+                idx,
+                on_modified=self._on_undo_redo_modified,
+                already_executed=False
+            )
+            self.undo_stack.push(cmd)
+        if len(page_indices) > 1:
+            self.undo_stack.endMacro()
 
     def _on_merge_external(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -369,6 +503,37 @@ class DocumentTab(QWidget):
     def _on_extract_pages(self, page_indices: List[int]):
         dialog = SplitExtractDialog(self.doc_wrapper, preselected_indices=page_indices, parent=self)
         dialog.exec()
+
+    def _on_replace_grid_pages(self, page_indices: List[int]):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select PDF to Replace Page(s)", "", "PDF Files (*.pdf)"
+        )
+        if file_path:
+            insert_at = page_indices[0] if page_indices else 0
+            self.doc_wrapper.merge_external_pdf(file_path)
+            self.show_organize_view()
+            self.dirty_state_changed.emit(True)
+
+    def _on_split_grid_pages(self, page_indices: List[int]):
+        dialog = SplitExtractDialog(self.doc_wrapper, preselected_indices=page_indices, parent=self)
+        dialog.exec()
+
+    def _on_crop_grid_pages(self, page_indices: List[int]):
+        QMessageBox.information(
+            self, "Crop Pages",
+            "To crop specific page margins, double-click to view the page and use Page Setup."
+        )
+
+    def _on_page_labels_requested(self):
+        QMessageBox.information(
+            self, "Page Labels",
+            "Page labels are dynamically synchronized with document bookmarks and section outlines."
+        )
+
+    def _on_organizer_nav_tab_selected(self, tab_id: str):
+        if tab_id != "pages":
+            self.show_reading_view()
+            self._on_right_nav_tab_selected(tab_id)
 
     # ==========================================
     # Reading View Controls
@@ -435,28 +600,54 @@ class DocumentTab(QWidget):
         self.canvas.set_draw_style(rgb, width)
 
     def _on_highlight_created(self, page_index: int, rect: fitz.Rect):
-        self.doc_wrapper.add_highlight_annotation(page_index, rect, color=self.highlight_color)
-        self.re_render_page(page_index)
-        self.refresh_annotations_feed()
-        self.dirty_state_changed.emit(True)
+        cmd = AddAnnotationCommand(
+            self.doc_wrapper,
+            page_index,
+            "highlight",
+            {"rect": rect, "color": self.highlight_color},
+            on_modified=self._on_undo_redo_modified,
+            already_executed=False
+        )
+        self.undo_stack.push(cmd)
 
     def _on_ink_drawn(self, page_index: int, points: list):
-        self.doc_wrapper.add_ink_annotation(page_index, [points], color=self.draw_color, width=self.draw_width)
-        self.re_render_page(page_index)
-        self.refresh_annotations_feed()
-        self.dirty_state_changed.emit(True)
+        cmd = AddAnnotationCommand(
+            self.doc_wrapper,
+            page_index,
+            "ink",
+            {"strokes": [points], "color": self.draw_color, "width": self.draw_width},
+            on_modified=self._on_undo_redo_modified,
+            already_executed=False
+        )
+        self.undo_stack.push(cmd)
 
     def _on_note_created(self, page_index: int, pt: tuple, text: str):
-        self.doc_wrapper.add_text_annotation(page_index, pt, content=text, author="Reviewer")
-        self.re_render_page(page_index)
-        self.refresh_annotations_feed()
-        self.dirty_state_changed.emit(True)
+        cmd = AddAnnotationCommand(
+            self.doc_wrapper,
+            page_index,
+            "note",
+            {"point": pt, "content": text, "author": "Reviewer"},
+            on_modified=self._on_undo_redo_modified,
+            already_executed=False
+        )
+        self.undo_stack.push(cmd)
 
     def _on_delete_annotation(self, page_index: int, xref: int):
-        if self.doc_wrapper.delete_annotation(page_index, xref):
-            self.re_render_page(page_index)
-            self.refresh_annotations_feed()
-            self.dirty_state_changed.emit(True)
+        annot_dict = None
+        for a in self.doc_wrapper.get_all_annotations():
+            if a.get("xref") == xref:
+                annot_dict = a
+                break
+        if not annot_dict:
+            annot_dict = {"xref": xref, "type": "Annotation"}
+        cmd = DeleteAnnotationCommand(
+            self.doc_wrapper,
+            page_index,
+            annot_dict,
+            on_modified=self._on_undo_redo_modified,
+            already_executed=False
+        )
+        self.undo_stack.push(cmd)
 
     def refresh_annotations_feed(self):
         annots = self.doc_wrapper.get_all_annotations()
@@ -473,12 +664,15 @@ class DocumentTab(QWidget):
             pt = (rect.x0 + 36, rect.y0 + 36)
         except Exception:
             pt = (36, 36)
-        self.doc_wrapper.add_text_annotation(
-            page_num - 1, pt, content=text, author="Reviewer"
+        cmd = AddAnnotationCommand(
+            self.doc_wrapper,
+            page_num - 1,
+            "note",
+            {"point": pt, "content": text, "author": "Reviewer"},
+            on_modified=self._on_undo_redo_modified,
+            already_executed=False
         )
-        self.re_render_page(page_num - 1)
-        self.refresh_annotations_feed()
-        self.dirty_state_changed.emit(True)
+        self.undo_stack.push(cmd)
 
     def _on_right_panel_close(self):
         """Hide right panel when ✕ is clicked in any right drawer panel header."""
@@ -494,14 +688,24 @@ class DocumentTab(QWidget):
         self.left_rail.set_search_results(results)
 
     def rotate_current_page_cw(self):
-        self.doc_wrapper.rotate_page(self.current_page - 1, 90)
-        self.re_render_page(self.current_page - 1)
-        self.dirty_state_changed.emit(True)
+        cmd = RotatePageCommand(
+            self.doc_wrapper,
+            [self.current_page - 1],
+            90,
+            on_modified=self._on_undo_redo_modified,
+            already_executed=False
+        )
+        self.undo_stack.push(cmd)
 
     def rotate_current_page_ccw(self):
-        self.doc_wrapper.rotate_page(self.current_page - 1, -90)
-        self.re_render_page(self.current_page - 1)
-        self.dirty_state_changed.emit(True)
+        cmd = RotatePageCommand(
+            self.doc_wrapper,
+            [self.current_page - 1],
+            -90,
+            on_modified=self._on_undo_redo_modified,
+            already_executed=False
+        )
+        self.undo_stack.push(cmd)
 
     def delete_current_page(self):
         if self.doc_wrapper.page_count <= 1:
@@ -513,13 +717,13 @@ class DocumentTab(QWidget):
         )
         if res == QMessageBox.Yes:
             idx = self.current_page - 1
-            self.doc_wrapper.delete_pages([idx])
-            self.current_page = max(1, min(self.doc_wrapper.page_count, self.current_page))
-            self.canvas.setup_pages(self.doc_wrapper.page_count)
-            self.render_all_pages()
-            self.refresh_sidebars()
-            self.go_to_page(self.current_page)
-            self.dirty_state_changed.emit(True)
+            cmd = DeletePagesCommand(
+                self.doc_wrapper,
+                [idx],
+                on_modified=self._on_undo_redo_modified,
+                already_executed=False
+            )
+            self.undo_stack.push(cmd)
 
     # ==========================================
     # OCR Engine Handlers
@@ -692,18 +896,22 @@ class DocumentTab(QWidget):
 
     def save(self) -> str:
         saved_path = self.doc_wrapper.save_document()
+        self.undo_stack.setClean()
         self.dirty_state_changed.emit(False)
         return saved_path
 
     def save_as(self, path: str) -> str:
         saved_path = self.doc_wrapper.save_document(path)
         self.file_path = saved_path
+        self.undo_stack.setClean()
         self.dirty_state_changed.emit(False)
         return saved_path
 
     def close(self):
         if hasattr(self, "tts_controller"):
             self.tts_controller.cleanup()
+        if hasattr(self, "undo_stack"):
+            self.undo_stack.clear()
         self.doc_wrapper.close()
 
     def toggle_all_tools_panel(self):
@@ -725,7 +933,13 @@ class DocumentTab(QWidget):
             if win and hasattr(win, "open_merge_dialog"):
                 win.open_merge_dialog()
         elif tool_id in ("edit", "fill_sign", "esign"):
-            self.set_tool("draw")
+            if tool_id == "edit":
+                self.enter_edit_mode()
+                win = self.window()
+                if win and hasattr(win, "quick_tools"):
+                    win.quick_tools.workspace_tabs.set_active_tab("edit", emit_signal=False)
+            else:
+                self.set_tool("draw")
         elif tool_id == "comments":
             # Show CommentsPanel (stack page 0)
             self.right_panel_stack.setCurrentIndex(0)
@@ -773,6 +987,274 @@ class DocumentTab(QWidget):
             if hasattr(self, "bookmarks_panel"):
                 self.bookmarks_panel.set_current_page(self.current_page)
 
+    # ==========================================
+    # Phase 6: Edit PDF Workstation Integration
+    # ==========================================
+
+    def is_edit_mode_active(self) -> bool:
+        return self.is_edit_mode
+
+    def enter_edit_mode(self):
+        if self.is_organize_view_active():
+            self.show_reading_view()
+        self.is_edit_mode = True
+        self.all_tools_panel.setVisible(False)
+        self.edit_pdf_panel.setVisible(True)
+        if hasattr(self, "floating_tools_container"):
+            self.floating_tools_container.setVisible(False)
+        self.canvas.set_edit_mode(True, show_bounding_boxes=self.edit_pdf_panel.show_bounding_boxes)
+        self.load_content_blocks()
+
+    def exit_edit_mode(self):
+        self.is_edit_mode = False
+        self.edit_pdf_panel.setVisible(False)
+        self.canvas.set_edit_mode(False)
+        if hasattr(self, "floating_tools_container"):
+            self.floating_tools_container.setVisible(True)
+        self.all_tools_panel.setVisible(True)
+
+    def load_content_blocks(self):
+        for i in range(self.doc_wrapper.page_count):
+            blocks = self.doc_wrapper.get_content_blocks(i)
+            self.canvas.set_page_content_blocks(i, blocks)
+
+    def _on_edit_panel_closed(self):
+        self.exit_edit_mode()
+        win = self.window()
+        if win and hasattr(win, "quick_tools"):
+            win.quick_tools.workspace_tabs.set_active_tab("all_tools", emit_signal=False)
+
+    def _on_edit_tool_selected(self, tool_id: str):
+        if tool_id == "text":
+            self.canvas.set_tool("text")
+        elif tool_id == "image":
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Insert Image", "", "Images (*.png *.jpg *.jpeg *.bmp);;All Files (*.*)"
+            )
+            if file_path:
+                target_page = max(0, min(self.current_page - 1, self.doc_wrapper.page_count - 1))
+                page = self.doc_wrapper.get_page(target_page)
+                p_rect = page.rect
+                img_w, img_h = 200, 200
+                x0 = (p_rect.width - img_w) / 2
+                y0 = 100
+                rect = fitz.Rect(x0, y0, x0 + img_w, y0 + img_h)
+                before_snap = {target_page: PageSnapshotManager.create_snapshot(self.doc_wrapper.doc, target_page)}
+                self.doc_wrapper.insert_image_block(target_page, rect, file_path)
+                after_snap = {target_page: PageSnapshotManager.create_snapshot(self.doc_wrapper.doc, target_page)}
+                self.re_render_page(target_page)
+                self.canvas.set_page_content_blocks(target_page, self.doc_wrapper.get_content_blocks(target_page))
+                cmd = PageSnapshotCommand(
+                    self.doc_wrapper,
+                    "Insert Image",
+                    [target_page],
+                    before_snap,
+                    after_snap,
+                    on_modified=self._on_undo_redo_modified,
+                    already_executed=True
+                )
+                self.undo_stack.push(cmd)
+        elif tool_id == "link":
+            active = self.canvas.get_selected_block()
+            target_page = active[0] if active else max(0, min(self.current_page - 1, self.doc_wrapper.page_count - 1))
+            link_rect = active[1].rect if active else fitz.Rect(50, 100, 250, 130)
+            dialog = LinkDialog(parent=self)
+            if dialog.exec():
+                url = dialog.get_url()
+                if url:
+                    cmd = AddLinkCommand(
+                        self.doc_wrapper,
+                        target_page,
+                        link_rect,
+                        url,
+                        on_modified=self._on_undo_redo_modified,
+                        already_executed=False
+                    )
+                    self.undo_stack.push(cmd)
+
+    def _apply_text_block_edit(self, page_index: int, block: ContentBlock, text: str, font_style: FontStyle):
+        if text == block.text and font_style == block.font_style:
+            return
+        before_snap = {page_index: PageSnapshotManager.create_snapshot(self.doc_wrapper.doc, page_index)}
+        new_rect = self.doc_wrapper.replace_text_block(
+            page_index, block.rect, text, font_style=font_style
+        )
+        block.text = text
+        block.rect = new_rect
+        block.font_style = font_style
+        after_snap = {page_index: PageSnapshotManager.create_snapshot(self.doc_wrapper.doc, page_index)}
+        self.re_render_page(page_index)
+        self.canvas.set_page_content_blocks(page_index, self.doc_wrapper.get_content_blocks(page_index))
+        cmd = PageSnapshotCommand(
+            self.doc_wrapper,
+            "Edit Text",
+            [page_index],
+            before_snap,
+            after_snap,
+            on_modified=self._on_undo_redo_modified,
+            already_executed=True
+        )
+        self.undo_stack.push(cmd)
+
+    def _on_panel_font_style_changed(self, new_style: FontStyle):
+        active = self.canvas.get_selected_block()
+        if active:
+            p_idx, block = active
+            if block.is_text:
+                self._apply_text_block_edit(p_idx, block, block.text, new_style)
+
+    def _on_canvas_block_selected(self, page_index: int, block: ContentBlock):
+        if block and block.is_text and block.font_style:
+            self.edit_pdf_panel.set_font_style(block.font_style)
+
+    def _on_canvas_block_text_edited(self, page_index: int, block: ContentBlock, new_text: str):
+        self._apply_text_block_edit(page_index, block, new_text, block.font_style)
+
+    def _on_canvas_block_font_style_changed(self, page_index: int, block: ContentBlock, new_style: FontStyle):
+        self.edit_pdf_panel.set_font_style(new_style)
+        self._apply_text_block_edit(page_index, block, block.text, new_style)
+
+    def _on_canvas_block_rect_changed(self, page_index: int, block: ContentBlock, new_rect: fitz.Rect):
+        old_rect = getattr(block, "orig_rect", None) or block.rect
+
+        if old_rect is not None and abs(old_rect.x0 - new_rect.x0) < 0.5 and abs(old_rect.y0 - new_rect.y0) < 0.5 and abs(old_rect.width - new_rect.width) < 0.5 and abs(old_rect.height - new_rect.height) < 0.5:
+            return
+
+        before_snap = {page_index: PageSnapshotManager.create_snapshot(self.doc_wrapper.doc, page_index)}
+        self.doc_wrapper.doc[page_index].add_redact_annot(old_rect, fill=(1, 1, 1))
+        self.doc_wrapper.doc[page_index].apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+        block.rect = new_rect
+        self.doc_wrapper.insert_text_block(page_index, new_rect, block.text, font_style=block.font_style)
+        after_snap = {page_index: PageSnapshotManager.create_snapshot(self.doc_wrapper.doc, page_index)}
+        self.re_render_page(page_index)
+        self.canvas.set_page_content_blocks(page_index, self.doc_wrapper.get_content_blocks(page_index))
+        cmd = PageSnapshotCommand(
+            self.doc_wrapper,
+            "Move Block",
+            [page_index],
+            before_snap,
+            after_snap,
+            on_modified=self._on_undo_redo_modified,
+            already_executed=True
+        )
+        self.undo_stack.push(cmd)
+
+    def _on_canvas_new_textbox_requested(self, page_index: int, rect: fitz.Rect):
+        before_snap = {page_index: PageSnapshotManager.create_snapshot(self.doc_wrapper.doc, page_index)}
+        default_style = self.edit_pdf_panel.current_font_style
+        self.doc_wrapper.insert_text_block(page_index, rect, "New Text", font_style=default_style)
+        after_snap = {page_index: PageSnapshotManager.create_snapshot(self.doc_wrapper.doc, page_index)}
+        self.re_render_page(page_index)
+        blocks = self.doc_wrapper.get_content_blocks(page_index)
+        self.canvas.set_page_content_blocks(page_index, blocks)
+        for b in blocks:
+            if b.rect.intersects(rect):
+                self.canvas.page_widgets[page_index].select_block(b)
+                break
+        cmd = PageSnapshotCommand(
+            self.doc_wrapper,
+            "Insert Text Box",
+            [page_index],
+            before_snap,
+            after_snap,
+            on_modified=self._on_undo_redo_modified,
+            already_executed=True
+        )
+        self.undo_stack.push(cmd)
+
+    def _on_edit_header_footer(self):
+        dialog = HeaderFooterDialog(
+            page_count=self.doc_wrapper.page_count,
+            current_page=self.current_page,
+            parent=self
+        )
+        if dialog.exec():
+            cfg = dialog.get_config()
+            target_pages = cfg["page_indices"]
+            before_snaps = PageSnapshotManager.create_multi_snapshot(self.doc_wrapper.doc, target_pages)
+            self.doc_wrapper.add_header_footer(
+                header_left=cfg["header_left"],
+                header_center=cfg["header_center"],
+                header_right=cfg["header_right"],
+                footer_left=cfg["footer_left"],
+                footer_center=cfg["footer_center"],
+                footer_right=cfg["footer_right"],
+                font_size=cfg["font_size"],
+                color=cfg["color_rgb"],
+                margin=cfg["margin"],
+                page_indices=target_pages,
+                title=self.doc_wrapper.get_title() or os.path.basename(self.file_path)
+            )
+            after_snaps = PageSnapshotManager.create_multi_snapshot(self.doc_wrapper.doc, target_pages)
+            self.render_all_pages()
+            self.load_content_blocks()
+            cmd = PageSnapshotCommand(
+                self.doc_wrapper,
+                "Add Header & Footer",
+                target_pages,
+                before_snaps,
+                after_snaps,
+                on_modified=self._on_undo_redo_modified,
+                already_executed=True
+            )
+            self.undo_stack.push(cmd)
+
+    def _on_edit_watermark(self):
+        dialog = WatermarkDialog(
+            page_count=self.doc_wrapper.page_count,
+            current_page=self.current_page,
+            parent=self
+        )
+        if dialog.exec():
+            cfg = dialog.get_config()
+            target_pages = cfg["page_indices"]
+            before_snaps = PageSnapshotManager.create_multi_snapshot(self.doc_wrapper.doc, target_pages)
+            self.doc_wrapper.add_watermark(
+                text=cfg["text"],
+                opacity=cfg["opacity"],
+                angle=cfg["angle"],
+                font_size=cfg["font_size"],
+                color=cfg["color_rgb"],
+                page_indices=target_pages
+            )
+            after_snaps = PageSnapshotManager.create_multi_snapshot(self.doc_wrapper.doc, target_pages)
+            self.render_all_pages()
+            self.load_content_blocks()
+            cmd = PageSnapshotCommand(
+                self.doc_wrapper,
+                "Add Watermark",
+                target_pages,
+                before_snaps,
+                after_snaps,
+                on_modified=self._on_undo_redo_modified,
+                already_executed=True
+            )
+            self.undo_stack.push(cmd)
+
+    def _on_edit_crop(self):
+        target_idx = max(0, min(self.current_page - 1, self.doc_wrapper.page_count - 1))
+        page = self.doc_wrapper.get_page(target_idx)
+        dialog = CropPagesDialog(
+            page_width=page.rect.width,
+            page_height=page.rect.height,
+            current_page=self.current_page,
+            parent=self
+        )
+        if dialog.exec():
+            cfg = dialog.get_config()
+            l, t, r, b = cfg["crop_rect_coords"]
+            crop_rect = fitz.Rect(l, t, r, b)
+            pages = list(range(self.doc_wrapper.page_count)) if cfg["apply_all"] else [target_idx]
+            old_cropboxes = {p: self.doc_wrapper.get_page(p).cropbox for p in pages}
+            cmd = CropPageCommand(
+                self.doc_wrapper,
+                old_cropboxes,
+                crop_rect,
+                on_modified=self._on_undo_redo_modified,
+                already_executed=False
+            )
+            self.undo_stack.push(cmd)
+
     def update_theme(self):
         self.right_drawer.update_theme()
         self.organizer_grid.update_theme()
@@ -782,6 +1264,10 @@ class DocumentTab(QWidget):
             self.floating_tools.update_theme()
         if hasattr(self, "all_tools_panel"):
             self.all_tools_panel.update_theme()
+        if hasattr(self, "edit_pdf_panel"):
+            self.edit_pdf_panel.update_theme()
+        if hasattr(self, "canvas"):
+            self.canvas.update_theme()
         if hasattr(self, "right_nav_rail"):
             self.right_nav_rail.update_theme()
         if hasattr(self, "comments_panel"):
@@ -801,6 +1287,13 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Adobe Acrobat")
         self.is_dark_theme = start_dark
+
+        # Multi-document Undo/Redo Orchestrator
+        self.undo_group = QUndoGroup(self)
+        self.undo_group.canUndoChanged.connect(self._on_undo_availability_changed)
+        self.undo_group.canRedoChanged.connect(self._on_redo_availability_changed)
+        self.undo_group.undoTextChanged.connect(self._on_undo_text_changed)
+        self.undo_group.redoTextChanged.connect(self._on_redo_text_changed)
 
         # Set Inter font globally (Task 6.3)
         app = QApplication.instance()
@@ -863,7 +1356,8 @@ class MainWindow(QMainWindow):
         self.quick_tools.page_jump_requested.connect(self._go_to_page)
         self.quick_tools.theme_toggle_requested.connect(self.toggle_theme)
         self.quick_tools.ai_toggle_requested.connect(self.focus_ai_copilot)
-        self.quick_tools.ai_assistant_requested.connect(self.focus_ai_copilot)
+        self.quick_tools.undo_requested.connect(self.undo_active_document)
+        self.quick_tools.redo_requested.connect(self.redo_active_document)
         self.quick_tools.search_requested.connect(self._trigger_find_in_doc)
         self.quick_tools.save_requested.connect(self.save_active_document)
         self.quick_tools.print_requested.connect(self._print_or_export_active_doc)
@@ -994,14 +1488,12 @@ class MainWindow(QMainWindow):
         # 2. Edit Menu
         self.menu_edit = menu_bar.addMenu("&Edit")
 
-        self.action_undo = QAction("&Undo", self)
+        self.action_undo = self.undo_group.createUndoAction(self, "&Undo")
         self.action_undo.setShortcut(QKeySequence.Undo)
-        self.action_undo.setEnabled(False)
         self.menu_edit.addAction(self.action_undo)
 
-        self.action_redo = QAction("&Redo", self)
-        self.action_redo.setShortcut(QKeySequence.Redo)
-        self.action_redo.setEnabled(False)
+        self.action_redo = self.undo_group.createRedoAction(self, "&Redo")
+        self.action_redo.setShortcuts([QKeySequence.Redo, QKeySequence("Ctrl+Shift+Z")])
         self.menu_edit.addAction(self.action_redo)
 
         self.menu_edit.addSeparator()
@@ -1178,21 +1670,31 @@ class MainWindow(QMainWindow):
             if tab:
                 if tab.is_organize_view_active():
                     tab.show_reading_view()
-                if hasattr(tab, "all_tools_panel"):
-                    tab.toggle_all_tools_panel()
+                if tab.is_edit_mode_active():
+                    tab.exit_edit_mode()
+                elif hasattr(tab, "all_tools_panel"):
+                    tab.all_tools_panel.setVisible(True)
             self.status_bar.showMessage("Workspace: All tools view active", 3000)
+            self._update_status_bar_info()
         elif tab_id == "edit":
             if tab:
-                tab.set_tool("draw")
-            self.status_bar.showMessage("Workspace: Edit & markup mode active", 3000)
+                tab.enter_edit_mode()
+            self.status_bar.showMessage("Workspace: Edit PDF mode active", 3000)
+            self._update_status_bar_info()
         elif tab_id == "convert":
             if tab:
+                if tab.is_edit_mode_active():
+                    tab.exit_edit_mode()
                 tab.export_markdown()
             self.status_bar.showMessage("Workspace: Convert & export ready", 3000)
+            self._update_status_bar_info()
         elif tab_id == "esign":
             if tab:
+                if tab.is_edit_mode_active():
+                    tab.exit_edit_mode()
                 tab.set_tool("draw")
             self.status_bar.showMessage("Workspace: E-Sign & pen signature mode active", 3000)
+            self._update_status_bar_info()
 
     def _rotate_active_page_cw(self):
         tab = self._get_active_tab()
@@ -1281,8 +1783,12 @@ class MainWindow(QMainWindow):
 
     def _on_tab_view_mode_changed(self, tab: DocumentTab, is_organize: bool):
         if tab == self._get_active_tab():
-            self.quick_tools.setVisible(not is_organize)
+            self.quick_tools.setVisible(True)
+            if is_organize:
+                if hasattr(self.quick_tools, "workspace_tabs"):
+                    self.quick_tools.workspace_tabs.set_active_tab("all_tools", emit_signal=False)
             self.btn_toggle_organize.setText("Document View" if is_organize else "Organize Pages")
+            self.status_bar.clearMessage()
             if not is_organize:
                 self._update_quick_tools_for_active_tab()
 
@@ -1332,6 +1838,8 @@ class MainWindow(QMainWindow):
     def open_document(self, file_path: str):
         try:
             tab = DocumentTab(file_path, parent=self)
+            self.undo_group.addStack(tab.undo_stack)
+            self.undo_group.setActiveStack(tab.undo_stack)
             tab.dirty_state_changed.connect(lambda is_dirty: self._update_tab_dirty_state(tab, is_dirty))
             tab.view_mode_changed.connect(lambda is_org: self._on_tab_view_mode_changed(tab, is_org))
 
@@ -1432,6 +1940,7 @@ class MainWindow(QMainWindow):
     def close_tab(self, index: int):
         tab = self.tab_widget.widget(index)
         if isinstance(tab, DocumentTab):
+            self.undo_group.removeStack(tab.undo_stack)
             if tab.doc_wrapper.is_dirty:
                 ret = QMessageBox.question(
                     self,
@@ -1442,6 +1951,7 @@ class MainWindow(QMainWindow):
                 if ret == QMessageBox.Save:
                     tab.save()
                 elif ret == QMessageBox.Cancel:
+                    self.undo_group.addStack(tab.undo_stack)
                     return
 
             tab.close()
@@ -1477,19 +1987,50 @@ class MainWindow(QMainWindow):
             return current
         return None
 
+    def undo_active_document(self):
+        tab = self._get_active_tab()
+        if tab:
+            tab.undo()
+
+    def redo_active_document(self):
+        tab = self._get_active_tab()
+        if tab:
+            tab.redo()
+
+    def _on_undo_availability_changed(self, can_undo: bool):
+        if hasattr(self, "quick_tools"):
+            self.quick_tools.set_undo_enabled(can_undo)
+
+    def _on_redo_availability_changed(self, can_redo: bool):
+        if hasattr(self, "quick_tools"):
+            self.quick_tools.set_redo_enabled(can_redo)
+
+    def _on_undo_text_changed(self, text: str):
+        if hasattr(self, "quick_tools"):
+            self.quick_tools.set_undo_tooltip(text)
+
+    def _on_redo_text_changed(self, text: str):
+        if hasattr(self, "quick_tools"):
+            self.quick_tools.set_redo_tooltip(text)
+
     def _on_tab_changed(self, index: int):
         self._update_workspace_state()
         tab = self._get_active_tab()
         if tab:
+            self.undo_group.setActiveStack(tab.undo_stack)
             doc_name = os.path.basename(tab.file_path)
             self.setWindowTitle(f"{doc_name} — Adobe Acrobat")
             self._set_menu_title(f"{doc_name} — Adobe Acrobat")
             is_org = tab.is_organize_view_active()
             self.btn_toggle_organize.setText("Document View" if is_org else "Organize Pages")
             self.quick_tools.setVisible(not is_org)
+            if hasattr(self.quick_tools, "workspace_tabs"):
+                target_tab = "edit" if tab.is_edit_mode_active() else "all_tools"
+                self.quick_tools.workspace_tabs.set_active_tab(target_tab, emit_signal=False)
             if hasattr(self, "app_nav_bar") and index >= 0:
                 self.app_nav_bar.set_active_document_tab(index)
         else:
+            self.undo_group.setActiveStack(None)
             self.setWindowTitle("Adobe Acrobat")
             self._set_menu_title("Adobe Acrobat")
             if hasattr(self, "app_nav_bar"):
