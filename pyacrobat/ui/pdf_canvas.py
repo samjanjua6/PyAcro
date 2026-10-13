@@ -20,6 +20,7 @@ from PySide6.QtGui import (
 from pyacrobat.core.pdf_editor import ContentBlock, ContentBlockType, FontStyle
 from pyacrobat.ui.selected_text_toolbar import SelectedTextToolbar
 from pyacrobat.ui.inline_text_editor import InlineTextEditor, EditingTipBanner
+from pyacrobat.ui.page_render_manager import PageRenderManager
 
 
 class PageCardWidget(QFrame):
@@ -46,6 +47,8 @@ class PageCardWidget(QFrame):
     def __init__(self, page_index: int, parent=None):
         super().__init__(parent)
         self.page_index = page_index
+        self.page_width: float = 595.0
+        self.page_height: float = 842.0
         self.scale: float = 1.0
         self.dpr_factor: float = 1.0
         self.current_tool: str = "select"
@@ -100,6 +103,26 @@ class PageCardWidget(QFrame):
         self.inline_editor.hide()
         self.inline_editor.editing_committed.connect(self._on_inline_editing_committed)
         self.inline_editor.editing_canceled.connect(self._on_inline_editing_canceled)
+
+    def set_placeholder_geometry(self, page_width: float, page_height: float, scale: float):
+        """Sets the logical placeholder dimensions before rasterization occurs."""
+        self.page_width = max(10.0, page_width)
+        self.page_height = max(10.0, page_height)
+        self.scale = max(0.1, scale)
+        w = int(round(self.page_width * self.scale))
+        h = int(round(self.page_height * self.scale))
+        self.setFixedSize(w, h)
+        self.update()
+
+    def evict_pixmap(self):
+        """Releases rasterized pixmap from RAM while preserving page placeholder geometry."""
+        if self.base_pixmap is not None:
+            self.base_pixmap = None
+            self.update()
+
+    def has_pixmap(self) -> bool:
+        """Returns True if the page has an active rasterized pixmap loaded in RAM."""
+        return self.base_pixmap is not None and not self.base_pixmap.isNull()
 
     def set_page_image(self, qimage: QImage, dpr_factor: float, scale: float):
         """Sets the rasterized image with native High-DPI device pixel ratio."""
@@ -244,7 +267,15 @@ class PageCardWidget(QFrame):
         if self.base_pixmap and not self.base_pixmap.isNull():
             painter.drawPixmap(0, 0, self.base_pixmap)
         else:
+            # Razor-sharp Adobe-styled placeholder while pixmap is evicted (viewport virtualization)
             painter.fillRect(self.rect(), Qt.white)
+            painter.setPen(QPen(QColor(220, 224, 230), 1))
+            painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
+            painter.setPen(QColor(160, 165, 175))
+            f = painter.font()
+            f.setPointSize(11)
+            painter.setFont(f)
+            painter.drawText(self.rect(), Qt.AlignCenter, f"Page {self.page_index + 1}")
 
         # 2. Interactive Edit Mode Bounding Boxes & Selection Overlays
         if self.is_edit_mode:
@@ -620,6 +651,10 @@ class PDFCanvas(QScrollArea):
         self._is_panning = False
         self._pan_start = QPoint()
 
+        # Phase 7: Background rasterization engine
+        self.render_manager = PageRenderManager(self)
+        self.render_manager.page_ready.connect(self._on_page_rendered_from_manager)
+
         self.init_ui()
 
     def init_ui(self):
@@ -647,6 +682,8 @@ class PDFCanvas(QScrollArea):
         self.editing_tip_banner.hide()
 
     def clear(self):
+        if hasattr(self, "render_manager") and self.render_manager:
+            self.render_manager.cancel_all()
         for w in self.page_widgets:
             w.setParent(None)
             w.deleteLater()
@@ -654,10 +691,13 @@ class PDFCanvas(QScrollArea):
         self.floating_text_toolbar.hide()
         self.editing_tip_banner.hide()
 
-    def setup_pages(self, page_count: int):
+    def setup_pages(self, page_count: int, page_dimensions: Optional[List[Tuple[float, float]]] = None):
         self.clear()
         for i in range(page_count):
             card = PageCardWidget(page_index=i, parent=self.container)
+            if page_dimensions and i < len(page_dimensions):
+                pw, ph = page_dimensions[i]
+                card.set_placeholder_geometry(pw, ph, self.current_zoom)
             card.current_tool = self.current_tool
             card.set_edit_mode(self.is_edit_mode, self.show_bounding_boxes)
 
@@ -676,6 +716,106 @@ class PDFCanvas(QScrollArea):
 
             self.container_layout.addWidget(card)
             self.page_widgets.append(card)
+
+    def setup_document(
+        self,
+        doc_wrapper,
+        page_dimensions: List[Tuple[float, float]],
+        scale: float,
+        dpr: float,
+        dpi: float
+    ):
+        """Initializes canvas with placeholders and launches async viewport rasterization."""
+        self.current_zoom = max(0.25, min(4.0, scale))
+        self.render_manager.set_document(doc_wrapper)
+        self.render_manager.set_scale_and_dpi(self.current_zoom, dpr, dpi)
+        self.setup_pages(len(page_dimensions), page_dimensions)
+        self.update_visible_pages_cache()
+
+    def set_zoom(self, zoom: float, dpr: float = 1.25, dpi: float = 96.0):
+        """Updates canvas zoom level, resizes placeholders, and invalidates/refreshes viewport cache."""
+        self.current_zoom = max(0.25, min(4.0, zoom))
+        for card in self.page_widgets:
+            card.evict_pixmap()
+            card.set_placeholder_geometry(card.page_width, card.page_height, self.current_zoom)
+        if hasattr(self, "render_manager") and self.render_manager:
+            self.render_manager.set_scale_and_dpi(self.current_zoom, dpr, dpi)
+        self.update_visible_pages_cache()
+
+    def get_active_cache_window(self) -> Tuple[int, int]:
+        """Calculates (start_idx, end_idx) of the visible pages ± 2 adjacent pages window."""
+        if not self.page_widgets:
+            return (0, 0)
+
+        total_pages = len(self.page_widgets)
+        vp_height = self.viewport().height()
+        if vp_height <= 0:
+            vp_height = 800
+
+        layout_ready = len(self.page_widgets) > 1 and self.page_widgets[1].y() > 0
+
+        scroll_y = self.verticalScrollBar().value()
+        current_y = self.container_layout.contentsMargins().top()
+        spacing = self.container_layout.spacing()
+
+        visible_indices = []
+        for idx, card in enumerate(self.page_widgets):
+            if layout_ready:
+                top_in_vp = card.mapTo(self.viewport(), QPoint(0, 0)).y()
+                bottom_in_vp = top_in_vp + card.height()
+                if bottom_in_vp >= 0 and top_in_vp <= vp_height:
+                    visible_indices.append(idx)
+            else:
+                card_top = current_y
+                card_bottom = card_top + card.height()
+                current_y = card_bottom + spacing
+                if card_bottom >= scroll_y and card_top <= (scroll_y + vp_height):
+                    visible_indices.append(idx)
+
+        if not visible_indices:
+            visible_indices = [0]
+
+        min_vis = min(visible_indices)
+        max_vis = max(visible_indices)
+        start_cache = max(0, min_vis - 2)
+        end_cache = min(total_pages - 1, max_vis + 2)
+        return (start_cache, end_cache)
+
+    def update_visible_pages_cache(self):
+        """
+        Bounds memory footprint by caching only visible pages ± 2 adjacent pages (GEMINI.md).
+        Dynamically evicts offscreen pixmaps and queues background rasterization for active pages.
+        """
+        if not self.page_widgets or not hasattr(self, "render_manager") or not self.render_manager or not self.render_manager.doc_wrapper:
+            return
+
+        start_cache, end_cache = self.get_active_cache_window()
+        active_window = set(range(start_cache, end_cache + 1))
+
+        # 1. Evict offscreen page pixmaps to strictly bound RAM
+        for idx, card in enumerate(self.page_widgets):
+            if idx not in active_window and card.has_pixmap():
+                card.evict_pixmap()
+
+        # 2. Queue background rasterization for missing active pages
+        desired_indices = list(range(start_cache, end_cache + 1))
+        self.render_manager.request_pages(
+            desired_indices=desired_indices,
+            priority_indices=[(start_cache + end_cache) // 2]
+        )
+
+    def _on_page_rendered_from_manager(self, page_index: int, qimage: QImage, dpr_factor: float, scale: float):
+        start_cache, end_cache = self.get_active_cache_window()
+        # Strictly verify page is still inside visible ± 2 window
+        if not (start_cache <= page_index <= end_cache):
+            return  # Discard render result for page that scrolled offscreen
+
+        if 0 <= page_index < len(self.page_widgets):
+            card = self.page_widgets[page_index]
+            card.set_page_image(qimage, dpr_factor, scale)
+            if self.is_edit_mode and self.render_manager and self.render_manager.doc_wrapper:
+                blocks = self.render_manager.doc_wrapper.get_content_blocks(page_index)
+                card.set_content_blocks(blocks)
 
     def update_page_pixmap(self, page_index: int, qimage: QImage, dpr_factor: float, scale: float):
         if 0 <= page_index < len(self.page_widgets):
@@ -773,6 +913,7 @@ class PDFCanvas(QScrollArea):
 
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
+        self.update_visible_pages_cache()
         self._reposition_tip_banner()
         active = self.get_selected_block()
         if active and self.floating_text_toolbar.isVisible():
@@ -815,6 +956,7 @@ class PDFCanvas(QScrollArea):
             card = self.page_widgets[idx]
             self.ensureWidgetVisible(card, 0, 10)
             self.page_scrolled_to.emit(page_number)
+            self.update_visible_pages_cache()
 
     def _on_scroll(self, value: int):
         viewport_center_y = self.viewport().rect().center().y()
@@ -824,6 +966,9 @@ class PDFCanvas(QScrollArea):
             if top_in_viewport <= viewport_center_y <= bottom_in_viewport:
                 self.page_scrolled_to.emit(idx + 1)
                 break
+
+        # Evict offscreen pixmaps and request newly visible pages
+        self.update_visible_pages_cache()
 
         # Reposition floating toolbar while scrolling if visible
         active = self.get_selected_block()

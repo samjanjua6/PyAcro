@@ -20,11 +20,10 @@ except ImportError:
 
 def get_tessdata_dir() -> Optional[str]:
     """Resolves the tessdata directory from project assets or system paths."""
-    # 1. Project bundled tessdata
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    project_tessdata = os.path.join(base_dir, "tessdata")
-    if os.path.isdir(project_tessdata) and os.path.exists(os.path.join(project_tessdata, "eng.traineddata")):
-        return project_tessdata
+    from pyacrobat.core.resources import get_tessdata_path
+    bundled = get_tessdata_path()
+    if bundled:
+        return bundled
 
     # 2. Environment variable
     env_tessdata = os.environ.get("TESSDATA_PREFIX")

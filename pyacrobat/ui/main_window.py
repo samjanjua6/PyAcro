@@ -393,8 +393,12 @@ class DocumentTab(QWidget):
 
     def load_document(self):
         page_count = self.doc_wrapper.page_count
-        self.canvas.setup_pages(page_count)
-        self.render_all_pages()
+        dpr, dpi = self.get_screen_dpr_and_dpi()
+        page_dims = [
+            (self.doc_wrapper.get_page(i).rect.width, self.doc_wrapper.get_page(i).rect.height)
+            for i in range(page_count)
+        ]
+        self.canvas.setup_document(self.doc_wrapper, page_dims, self.current_zoom, dpr, dpi)
         self.refresh_sidebars()
         self.update_current_page_status()
         if hasattr(self, "page_controls"):
@@ -429,16 +433,16 @@ class DocumentTab(QWidget):
         self.refresh_annotations_feed()
 
     def render_all_pages(self):
-        for i in range(self.doc_wrapper.page_count):
-            self.re_render_page(i)
+        dpr, dpi = self.get_screen_dpr_and_dpi()
+        if hasattr(self.canvas, "render_manager"):
+            self.canvas.render_manager.set_scale_and_dpi(self.current_zoom, dpr, dpi)
+            self.canvas.render_manager.invalidate_all_pages()
+        self.canvas.update_visible_pages_cache()
 
     def re_render_page(self, page_index: int):
-        dpr, dpi = self.get_screen_dpr_and_dpi()
-        pix, factor = self.doc_wrapper.render_page_pixmap(
-            page_index, scale=self.current_zoom, dpr=dpr, screen_dpi=dpi
-        )
-        img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
-        self.canvas.update_page_pixmap(page_index, img, factor, self.current_zoom)
+        if hasattr(self.canvas, "render_manager"):
+            self.canvas.render_manager.invalidate_page(page_index)
+        self.canvas.update_visible_pages_cache()
 
     # ==========================================
     # View Switching
@@ -448,6 +452,8 @@ class DocumentTab(QWidget):
         return self.stack.currentIndex() == 1
 
     def show_organize_view(self):
+        if hasattr(self.canvas, "render_manager"):
+            self.canvas.render_manager.cancel_all()
         thumbnails = [
             self.doc_wrapper.render_thumbnail(i, target_width=170)
             for i in range(self.doc_wrapper.page_count)
@@ -460,8 +466,12 @@ class DocumentTab(QWidget):
 
     def show_reading_view(self):
         self.stack.setCurrentIndex(0)
-        self.canvas.setup_pages(self.doc_wrapper.page_count)
-        self.render_all_pages()
+        dpr, dpi = self.get_screen_dpr_and_dpi()
+        page_dims = [
+            (self.doc_wrapper.get_page(i).rect.width, self.doc_wrapper.get_page(i).rect.height)
+            for i in range(self.doc_wrapper.page_count)
+        ]
+        self.canvas.setup_document(self.doc_wrapper, page_dims, self.current_zoom, dpr, dpi)
         self.refresh_sidebars()
         self.go_to_page(min(self.current_page, self.doc_wrapper.page_count))
         self.view_mode_changed.emit(False)
@@ -592,7 +602,8 @@ class DocumentTab(QWidget):
 
     def set_zoom(self, zoom: float):
         self.current_zoom = max(0.25, min(4.0, zoom))
-        self.render_all_pages()
+        dpr, dpi = self.get_screen_dpr_and_dpi()
+        self.canvas.set_zoom(self.current_zoom, dpr, dpi)
         if hasattr(self, "page_controls"):
             self.page_controls.update_zoom_display(self.current_zoom)
 
@@ -949,6 +960,8 @@ class DocumentTab(QWidget):
         return saved_path
 
     def close(self):
+        if hasattr(self, "canvas") and hasattr(self.canvas, "render_manager"):
+            self.canvas.render_manager.cancel_all()
         if hasattr(self, "tts_controller"):
             self.tts_controller.cleanup()
         if hasattr(self, "undo_stack"):

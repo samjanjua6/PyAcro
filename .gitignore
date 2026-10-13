@@ -28,3 +28,8 @@ p1.pdf
 .idea/
 *.swp
 *.swo
+
+# Packaging and distribution
+build/
+dist/
+*.spec.bak
