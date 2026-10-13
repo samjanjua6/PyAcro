@@ -10,6 +10,9 @@ import tempfile
 from typing import List, Tuple, Optional, Dict, Any
 import pymupdf as fitz
 
+from pyacrobat.core.pdf_editor import PDFEditorEngine, ContentBlock, FontStyle, ContentBlockType
+
+
 
 class PDFDocument:
     """Encapsulates a fitz.Document instance with page organization & editing engine."""
@@ -275,6 +278,148 @@ class PDFDocument:
                 self.is_dirty = True
                 return True
         return False
+
+    # ==========================================
+    # Phase 1: PDF Content & Visual Editing API
+    # ==========================================
+
+    def get_content_blocks(self, page_index: int) -> List[ContentBlock]:
+        """Extracts selectable text and visual content blocks for the given page."""
+        return PDFEditorEngine.extract_page_content_blocks(self.doc, page_index)
+
+    def replace_text_block(
+        self,
+        page_index: int,
+        old_rect: fitz.Rect,
+        new_text: str,
+        font_style: Optional[FontStyle] = None,
+        padding: float = 1.0,
+        expand_for_text: bool = True
+    ) -> fitz.Rect:
+        """Atomically redacts old text and injects replacement vector text."""
+        result_rect = PDFEditorEngine.replace_text_block(
+            self.doc,
+            page_index,
+            old_rect,
+            new_text,
+            font_style=font_style,
+            padding=padding,
+            expand_for_text=expand_for_text
+        )
+        self.is_dirty = True
+        return result_rect
+
+    def insert_text_block(
+        self,
+        page_index: int,
+        rect: fitz.Rect,
+        text: str,
+        font_style: Optional[FontStyle] = None
+    ) -> fitz.Rect:
+        """Inserts a new vector text box at the specified coordinates."""
+        result_rect = PDFEditorEngine.insert_new_text_box(
+            self.doc, page_index, rect, text, font_style=font_style
+        )
+        self.is_dirty = True
+        return result_rect
+
+    def insert_image_block(
+        self,
+        page_index: int,
+        rect: fitz.Rect,
+        image_path: str
+    ):
+        """Embeds a new image at the target rectangle."""
+        PDFEditorEngine.insert_image_box(self.doc, page_index, rect, image_path)
+        self.is_dirty = True
+
+    def add_link(
+        self,
+        page_index: int,
+        rect: fitz.Rect,
+        uri: str
+    ):
+        """Adds an ISO-compliant web link over the specified area."""
+        PDFEditorEngine.add_hyperlink(self.doc, page_index, rect, uri)
+        self.is_dirty = True
+
+    def add_watermark(
+        self,
+        text: str,
+        opacity: float = 0.25,
+        angle: float = 45.0,
+        font_size: float = 48.0,
+        color: Optional[Tuple[float, float, float]] = None,
+        color_rgb: Optional[Tuple[float, float, float]] = None,
+        page_indices: Optional[List[int]] = None
+    ) -> int:
+        """Applies a diagonal rotated watermark across document pages."""
+        count = PDFEditorEngine.apply_watermark(
+            self.doc,
+            text,
+            opacity=opacity,
+            angle=angle,
+            font_size=font_size,
+            color=color,
+            color_rgb=color_rgb,
+            page_indices=page_indices
+        )
+        if count > 0:
+            self.is_dirty = True
+        return count
+
+    def add_header_footer(
+        self,
+        header_left: str = "",
+        header_center: str = "",
+        header_right: str = "",
+        footer_left: str = "",
+        footer_center: str = "",
+        footer_right: str = "",
+        font_size: float = 9.0,
+        color: Optional[Tuple[float, float, float]] = None,
+        color_rgb: Optional[Tuple[float, float, float]] = None,
+        margin: float = 36.0,
+        page_indices: Optional[List[int]] = None,
+        title: Optional[str] = None
+    ) -> int:
+        """Adds customizable headers and footers with dynamic page tokens."""
+        count = PDFEditorEngine.apply_header_footer(
+            self.doc,
+            header_left=header_left,
+            header_center=header_center,
+            header_right=header_right,
+            footer_left=footer_left,
+            footer_center=footer_center,
+            footer_right=footer_right,
+            font_size=font_size,
+            color=color,
+            color_rgb=color_rgb,
+            margin=margin,
+            page_indices=page_indices,
+            title=title
+        )
+        if count > 0:
+            self.is_dirty = True
+        return count
+
+    def crop_page(
+        self,
+        page_index: int,
+        crop_rect: fitz.Rect
+    ) -> fitz.Rect:
+        """Sets the active display crop box on the specified page."""
+        result = PDFEditorEngine.apply_crop_box(self.doc, page_index, crop_rect)
+        self.is_dirty = True
+        return result
+
+    def set_page_cropbox(
+        self,
+        page_index: int,
+        crop_rect: fitz.Rect
+    ) -> fitz.Rect:
+        """Convenience alias for crop_page."""
+        return self.crop_page(page_index, crop_rect)
 
     def save_document(self, target_path: Optional[str] = None) -> str:
         destination = target_path or self.file_path
