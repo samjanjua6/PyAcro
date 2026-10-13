@@ -85,6 +85,7 @@ class HomeView(QWidget):
     open_file_requested = Signal()
     file_open_requested = Signal(str)
     combine_files_requested = Signal()
+    export_pdf_requested = Signal()
     navigation_changed = Signal(str)
     file_selected = Signal(dict)
     view_mode_changed = Signal(str)
@@ -186,7 +187,7 @@ class HomeView(QWidget):
         self.card_export = QuickActionCard(
             "export", "Export a PDF", "Convert to Word, Excel, and more.", "file-output.svg", self
         )
-        self.card_export.clicked.connect(lambda: self.open_file_requested.emit())
+        self.card_export.clicked.connect(self._on_card_export_clicked)
         self.cards.append(self.card_export)
         cards_layout.addWidget(self.card_export, 1)
 
@@ -213,6 +214,10 @@ class HomeView(QWidget):
 
         self.scroll_area.setWidget(self.content_container)
         self.main_layout.addWidget(self.scroll_area, 1)
+
+    def _on_card_export_clicked(self):
+        self.open_file_requested.emit()
+        self.export_pdf_requested.emit()
 
     def _on_navigation_changed(self, item_id: str):
         """Dispatches navigation rail selection to the workstation."""

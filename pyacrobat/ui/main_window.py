@@ -11,15 +11,20 @@ import pymupdf as fitz
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QFileDialog, QMessageBox, QSplitter, QStatusBar,
-    QToolButton, QLabel, QApplication, QStackedWidget, QMenu, QMenuBar
+    QToolButton, QLabel, QApplication, QStackedWidget, QMenu, QMenuBar,
+    QFrame
 )
-from PySide6.QtCore import Qt, Signal, QRect
+from PySide6.QtCore import Qt, Signal, QRect, QThreadPool
 from PySide6.QtGui import QAction, QImage, QKeySequence, QShortcut, QFont, QUndoStack, QUndoGroup
 
 from pyacrobat.core.pdf_document import PDFDocument
 from pyacrobat.core.ocr_engine import OCREngine, OCRWorker
 from pyacrobat.core.tts_engine import TTSController
-from pyacrobat.core.export_engine import ExportEngine
+from pyacrobat.core.export_engine import (
+    ExportEngine, ExportWorker, get_format_display_name,
+    FORMAT_DOCX, FORMAT_XLSX, FORMAT_PPTX, FORMAT_PNG, FORMAT_IMAGE
+)
+from pyacrobat.ui.export_progress_dialog import ExportProgressDialog, ExportSuccessDialog
 from pyacrobat.ui.styles import (
     ACROBAT_DARK_THEME, ACROBAT_LIGHT_THEME, ThemeManager, generate_theme_stylesheet
 )
@@ -42,6 +47,7 @@ from pyacrobat.ui.ocr_dialog import OCRResultDialog
 from pyacrobat.ui.home_view import HomeView
 from pyacrobat.core.recent_files import RecentFilesManager
 from pyacrobat.ui.edit_pdf_panel import EditPdfPanel
+from pyacrobat.ui.export_pdf_panel import ExportPdfPanel
 from pyacrobat.core.pdf_editor import FontStyle, ContentBlock
 from pyacrobat.ui.page_utility_dialogs import (
     HeaderFooterDialog, WatermarkDialog, CropPagesDialog, LinkDialog
@@ -94,6 +100,7 @@ class DocumentTab(QWidget):
         self.draw_color = (0.88, 0.15, 0.11)
         self.draw_width = 2.0
         self.is_edit_mode = False
+        self.is_convert_mode = False
 
         self.undo_stack = QUndoStack(self)
         self.undo_stack.setUndoLimit(50)
@@ -185,6 +192,13 @@ class DocumentTab(QWidget):
         self.edit_pdf_panel.crop_requested.connect(self._on_edit_crop)
         rv_layout.addWidget(self.edit_pdf_panel)
 
+        # Export PDF Tool Drawer (308px fixed, Figma #3:13809)
+        self.export_pdf_panel = ExportPdfPanel(self)
+        self.export_pdf_panel.setVisible(False)
+        self.export_pdf_panel.close_requested.connect(self._on_export_panel_closed)
+        self.export_pdf_panel.export_requested.connect(self._on_export_requested)
+        rv_layout.addWidget(self.export_pdf_panel)
+
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setChildrenCollapsible(True)
 
@@ -252,6 +266,31 @@ class DocumentTab(QWidget):
         self.canvas.new_textbox_requested.connect(self._on_canvas_new_textbox_requested)
 
         vp_layout.addWidget(self.canvas)
+
+        # Convert Mode Preview Floating Badge (Figma #3:13915)
+        self.preview_badge_container = QWidget()
+        self.preview_badge_container.setObjectName("previewBadgeContainer")
+        pbc_layout = QHBoxLayout(self.preview_badge_container)
+        pbc_layout.setContentsMargins(14, 6, 14, 8)
+        pbc_layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        self.preview_badge_pill = QFrame()
+        self.preview_badge_pill.setObjectName("previewBadgePill")
+        pill_layout = QHBoxLayout(self.preview_badge_pill)
+        pill_layout.setContentsMargins(10, 4, 12, 4)
+        pill_layout.setSpacing(6)
+
+        self.icon_badge_eye = QLabel()
+        self.icon_badge_eye.setFixedSize(16, 16)
+        pill_layout.addWidget(self.icon_badge_eye)
+
+        self.lbl_preview_badge = QLabel("Preview of original PDF • All pages will be exported")
+        self.lbl_preview_badge.setFont(QFont("Inter", 8))
+        pill_layout.addWidget(self.lbl_preview_badge)
+
+        pbc_layout.addWidget(self.preview_badge_pill)
+        self.preview_badge_container.setVisible(False)
+        vp_layout.addWidget(self.preview_badge_container)
 
         self.splitter.addWidget(self.viewport_container)
 
@@ -923,7 +962,10 @@ class DocumentTab(QWidget):
         elif tool_id == "ocr":
             self.run_ocr_current_page()
         elif tool_id == "export":
-            self.export_markdown()
+            self.enter_convert_mode()
+            win = self.window()
+            if win and hasattr(win, "quick_tools"):
+                win.quick_tools.workspace_tabs.set_active_tab("convert", emit_signal=False)
         elif tool_id == "create":
             win = self.window()
             if win and hasattr(win, "open_file_dialog"):
@@ -1023,6 +1065,48 @@ class DocumentTab(QWidget):
         win = self.window()
         if win and hasattr(win, "quick_tools"):
             win.quick_tools.workspace_tabs.set_active_tab("all_tools", emit_signal=False)
+
+    def is_convert_mode_active(self) -> bool:
+        return getattr(self, "is_convert_mode", False)
+
+    def enter_convert_mode(self):
+        if self.is_organize_view_active():
+            self.show_reading_view()
+        if self.is_edit_mode_active():
+            self.exit_edit_mode()
+
+        self.is_convert_mode = True
+        self.all_tools_panel.setVisible(False)
+        self.edit_pdf_panel.setVisible(False)
+        if hasattr(self, "export_pdf_panel"):
+            self.export_pdf_panel.set_document_info(
+                self.doc_wrapper.file_path,
+                self.doc_wrapper.page_count
+            )
+            self.export_pdf_panel.setVisible(True)
+        if hasattr(self, "preview_badge_container"):
+            p_text = f"Preview of original PDF • All {self.doc_wrapper.page_count} pages will be exported"
+            self.lbl_preview_badge.setText(p_text)
+            self.preview_badge_container.setVisible(True)
+
+    def exit_convert_mode(self):
+        self.is_convert_mode = False
+        if hasattr(self, "export_pdf_panel"):
+            self.export_pdf_panel.setVisible(False)
+        if hasattr(self, "preview_badge_container"):
+            self.preview_badge_container.setVisible(False)
+        self.all_tools_panel.setVisible(True)
+
+    def _on_export_panel_closed(self):
+        self.exit_convert_mode()
+        win = self.window()
+        if win and hasattr(win, "quick_tools"):
+            win.quick_tools.workspace_tabs.set_active_tab("all_tools", emit_signal=False)
+
+    def _on_export_requested(self, target_path: str, format_key: str, options: dict):
+        win = self.window()
+        if win and hasattr(win, "execute_document_export"):
+            win.execute_document_export(self, target_path, format_key, options)
 
     def _on_edit_tool_selected(self, tool_id: str):
         if tool_id == "text":
@@ -1266,6 +1350,34 @@ class DocumentTab(QWidget):
             self.all_tools_panel.update_theme()
         if hasattr(self, "edit_pdf_panel"):
             self.edit_pdf_panel.update_theme()
+        if hasattr(self, "export_pdf_panel"):
+            self.export_pdf_panel.update_theme()
+        if hasattr(self, "preview_badge_pill"):
+            is_dark = ThemeManager.is_dark()
+            bg = "#252528" if is_dark else "#FFFFFF"
+            border = "#383838" if is_dark else "#D9D9D9"
+            txt = "#9E9E9E" if is_dark else "#626262"
+            self.preview_badge_pill.setStyleSheet(f"""
+                QFrame#previewBadgePill {{
+                    background-color: {bg};
+                    border: 1px solid {border};
+                    border-radius: 12px;
+                }}
+                QLabel {{
+                    color: {txt};
+                    background: transparent;
+                }}
+            """)
+            from pyacrobat.ui.export_pdf_panel import load_themed_svg
+            eye_svg = load_themed_svg("eye", "#4BA3FF" if is_dark else "#1473E6")
+            if eye_svg and eye_svg.isValid():
+                from PySide6.QtGui import QPixmap, QPainter
+                pix = QPixmap(32, 32)
+                pix.fill(Qt.transparent)
+                p = QPainter(pix)
+                eye_svg.render(p)
+                p.end()
+                self.icon_badge_eye.setPixmap(pix.scaled(16, 16, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         if hasattr(self, "canvas"):
             self.canvas.update_theme()
         if hasattr(self, "right_nav_rail"):
@@ -1370,9 +1482,10 @@ class MainWindow(QMainWindow):
 
         # Workspace Stack: Page 0 = Home Dashboard, Page 1 = Document Tabs
         self.home_view = HomeView(self)
-        self.home_view.open_file_requested.connect(self.open_file_dialog)
+        self.home_view.open_file_requested.connect(self._on_home_open_file_requested)
         self.home_view.file_open_requested.connect(self.open_document)
         self.home_view.combine_files_requested.connect(self.open_merge_dialog)
+        self.home_view.export_pdf_requested.connect(self._on_home_export_requested)
 
         self.workspace_stack = QStackedWidget()
         self.workspace_stack.addWidget(self.home_view)
@@ -1453,6 +1566,31 @@ class MainWindow(QMainWindow):
 
         # Export Submenu
         self.menu_export = QMenu("&Export", self)
+
+        self.action_export_convert_all = QAction("&Convert and Export PDF...", self)
+        self.action_export_convert_all.triggered.connect(lambda: self._export_to_format(None))
+        self.menu_export.addAction(self.action_export_convert_all)
+
+        self.menu_export.addSeparator()
+
+        self.action_export_word = QAction("Microsoft &Word (.docx)...", self)
+        self.action_export_word.triggered.connect(lambda: self._export_to_format(FORMAT_DOCX))
+        self.menu_export.addAction(self.action_export_word)
+
+        self.action_export_excel = QAction("Microsoft &Excel (.xlsx)...", self)
+        self.action_export_excel.triggered.connect(lambda: self._export_to_format(FORMAT_XLSX))
+        self.menu_export.addAction(self.action_export_excel)
+
+        self.action_export_pptx = QAction("Microsoft &PowerPoint (.pptx)...", self)
+        self.action_export_pptx.triggered.connect(lambda: self._export_to_format(FORMAT_PPTX))
+        self.menu_export.addAction(self.action_export_pptx)
+
+        self.action_export_img = QAction("&Image (PNG, JPEG, TIFF)...", self)
+        self.action_export_img.triggered.connect(lambda: self._export_to_format(FORMAT_IMAGE))
+        self.menu_export.addAction(self.action_export_img)
+
+        self.menu_export.addSeparator()
+
         self.action_export_images = QAction("Extract All &Images...", self)
         self.action_export_images.triggered.connect(self.export_active_images)
         self.menu_export.addAction(self.action_export_images)
@@ -1666,6 +1804,9 @@ class MainWindow(QMainWindow):
 
     def _on_workspace_tab_changed(self, tab_id: str):
         tab = self._get_active_tab()
+        if tab and hasattr(tab, "is_convert_mode_active") and tab.is_convert_mode_active() and tab_id != "convert":
+            tab.exit_convert_mode()
+
         if tab_id == "all_tools":
             if tab:
                 if tab.is_organize_view_active():
@@ -1685,7 +1826,7 @@ class MainWindow(QMainWindow):
             if tab:
                 if tab.is_edit_mode_active():
                     tab.exit_edit_mode()
-                tab.export_markdown()
+                tab.enter_convert_mode()
             self.status_bar.showMessage("Workspace: Convert & export ready", 3000)
             self._update_status_bar_info()
         elif tab_id == "esign":
@@ -1695,6 +1836,126 @@ class MainWindow(QMainWindow):
                 tab.set_tool("draw")
             self.status_bar.showMessage("Workspace: E-Sign & pen signature mode active", 3000)
             self._update_status_bar_info()
+
+    def _on_home_open_file_requested(self):
+        """Triggered from HomeView when open_file_requested is emitted."""
+        if getattr(self, "_handling_home_export", False):
+            return
+        self.open_file_dialog()
+
+    def _on_home_export_requested(self):
+        """Triggered from HomeView 'Export a PDF' quick action card."""
+        self._handling_home_export = True
+        try:
+            tab = self._get_active_tab()
+            if tab:
+                self.workspace_stack.setCurrentIndex(1)
+                self.quick_tools.setVisible(True)
+                self.quick_tools.workspace_tabs.select_tab("convert")
+            else:
+                file_path, _ = QFileDialog.getOpenFileName(
+                    self, "Select PDF to Convert", "", "PDF Files (*.pdf);;All Files (*.*)"
+                )
+                if file_path:
+                    self.open_document(file_path)
+                    active_tab = self._get_active_tab()
+                    if active_tab:
+                        self.quick_tools.workspace_tabs.select_tab("convert")
+        finally:
+            self._handling_home_export = False
+
+    def _export_to_format(self, format_key: Optional[str] = None):
+        """Enters Convert mode with a pre-selected export format from the File menu."""
+        tab = self._get_active_tab()
+        if not tab:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Select PDF to Export", "", "PDF Files (*.pdf);;All Files (*.*)"
+            )
+            if file_path:
+                self.open_document(file_path)
+                tab = self._get_active_tab()
+            else:
+                return
+
+        if tab:
+            self.workspace_stack.setCurrentIndex(1)
+            self.quick_tools.setVisible(True)
+            self.quick_tools.workspace_tabs.select_tab("convert")
+            if format_key and hasattr(tab, "export_pdf_panel"):
+                tab.export_pdf_panel.select_format(format_key)
+
+    def execute_document_export(self, tab, target_path: str, format_key: str, options: dict):
+        """Asynchronously executes multi-format document conversion with progress and prompts."""
+        # Non-destructive / overwrite safety verification
+        if os.path.exists(target_path):
+            reply = QMessageBox.question(
+                self, "Confirm File Replace",
+                f"The file '{os.path.basename(target_path)}' already exists.\n\nDo you want to overwrite it?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                self.status_bar.showMessage("Export cancelled by user.", 3000)
+                return
+
+        format_display = get_format_display_name(format_key)
+        source_name = os.path.basename(getattr(tab, "file_path", "Document.pdf"))
+        target_name = os.path.basename(target_path)
+
+        self.status_bar.showMessage(f"Exporting document to {target_name}...", 5000)
+
+        # Show modal progress dialog
+        self.active_progress_dlg = ExportProgressDialog(
+            format_display=format_display,
+            source_name=source_name,
+            target_name=target_name,
+            parent=self
+        )
+        self.active_progress_dlg.open()
+
+        worker = ExportWorker(
+            doc_wrapper=tab.doc_wrapper,
+            target_path=target_path,
+            format_key=format_key,
+            options=options
+        )
+
+        self.active_progress_dlg.cancel_requested.connect(worker.cancel)
+
+        def on_progress(cur, total, msg):
+            self.status_bar.showMessage(f"Exporting ({cur}/{total}): {msg}")
+            if hasattr(self, "active_progress_dlg") and self.active_progress_dlg:
+                self.active_progress_dlg.set_progress(cur, total, msg)
+
+        def on_finished(out_path):
+            if hasattr(self, "active_progress_dlg") and self.active_progress_dlg:
+                self.active_progress_dlg.close()
+                self.active_progress_dlg = None
+            self.status_bar.showMessage(f"Successfully exported to: {os.path.basename(out_path)}", 5000)
+            self.active_success_dlg = ExportSuccessDialog(
+                target_file_path=out_path,
+                format_display=format_display,
+                parent=self
+            )
+            self.active_success_dlg.open()
+
+        def on_cancelled():
+            if hasattr(self, "active_progress_dlg") and self.active_progress_dlg:
+                self.active_progress_dlg.close()
+                self.active_progress_dlg = None
+            self.status_bar.showMessage("Export cancelled by user.", 3000)
+
+        def on_error(err):
+            if hasattr(self, "active_progress_dlg") and self.active_progress_dlg:
+                self.active_progress_dlg.close()
+                self.active_progress_dlg = None
+            self.status_bar.showMessage(f"Export failed: {err}", 5000)
+            QMessageBox.critical(self, "Export Error", f"Failed to export document:\n{err}")
+
+        worker.signals.progress.connect(on_progress)
+        worker.signals.finished.connect(on_finished)
+        worker.signals.cancelled.connect(on_cancelled)
+        worker.signals.error.connect(on_error)
+        QThreadPool.globalInstance().start(worker)
 
     def _rotate_active_page_cw(self):
         tab = self._get_active_tab()
