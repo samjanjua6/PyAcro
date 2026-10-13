@@ -151,6 +151,13 @@ class WorkspaceTabStrip(QWidget):
         if emit_signal:
             self.tab_changed.emit(tab_id)
 
+    def set_active_tab(self, tab_id: str, emit_signal: bool = True):
+        self.select_tab(tab_id, emit_signal=emit_signal)
+
+    @property
+    def active_tab(self) -> str:
+        return self.active_tab_id
+
     def update_theme(self):
         for btn in self.tabs.values():
             btn.update_theme()
@@ -200,6 +207,8 @@ class ToolbarIconButton(QToolButton):
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            if not self.isEnabled():
+                painter.setOpacity(0.35)
             icon_size = 18
             x = (self.width() - icon_size) / 2.0
             y = (self.height() - icon_size) / 2.0
@@ -364,6 +373,8 @@ class DocumentToolbar(QWidget):
 
     # New Figma Workspace & Document Toolbar Signals
     workspace_tab_changed = Signal(str)
+    undo_requested = Signal()
+    redo_requested = Signal()
     search_requested = Signal()
     save_requested = Signal()
     print_requested = Signal()
@@ -413,7 +424,17 @@ class DocumentToolbar(QWidget):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         main_layout.addWidget(spacer)
 
-        # 3. Right: Utility Icon Buttons (Search, Save, Print)
+        # 3. Right: Utility Icon Buttons (Undo, Redo, Search, Save, Print)
+        self.btn_undo = ToolbarIconButton("undo", "Undo (Ctrl+Z)")
+        self.btn_undo.setEnabled(False)
+        self.btn_undo.clicked.connect(self.undo_requested.emit)
+        main_layout.addWidget(self.btn_undo)
+
+        self.btn_redo = ToolbarIconButton("redo", "Redo (Ctrl+Y)")
+        self.btn_redo.setEnabled(False)
+        self.btn_redo.clicked.connect(self.redo_requested.emit)
+        main_layout.addWidget(self.btn_redo)
+
         self.btn_search = ToolbarIconButton("search", "Search document (Ctrl+F)")
         self.btn_search.clicked.connect(self.search_requested.emit)
         main_layout.addWidget(self.btn_search)
@@ -456,6 +477,18 @@ class DocumentToolbar(QWidget):
         """Programmatically select workspace tab."""
         self.workspace_tabs.select_tab(tab_id)
 
+    def set_undo_enabled(self, enabled: bool):
+        self.btn_undo.setEnabled(enabled)
+
+    def set_redo_enabled(self, enabled: bool):
+        self.btn_redo.setEnabled(enabled)
+
+    def set_undo_tooltip(self, text: str):
+        self.btn_undo.setToolTip(f"Undo {text} (Ctrl+Z)" if text else "Undo (Ctrl+Z)")
+
+    def set_redo_tooltip(self, text: str):
+        self.btn_redo.setToolTip(f"Redo {text} (Ctrl+Y)" if text else "Redo (Ctrl+Y)")
+
     def update_theme(self):
         """Updates toolbar background, bottom border, and child styles for active theme."""
         is_dark = ThemeManager.is_dark()
@@ -470,6 +503,8 @@ class DocumentToolbar(QWidget):
         """)
 
         self.workspace_tabs.update_theme()
+        self.btn_undo.update_theme()
+        self.btn_redo.update_theme()
         self.btn_search.update_theme()
         self.btn_save.update_theme()
         self.btn_print.update_theme()
