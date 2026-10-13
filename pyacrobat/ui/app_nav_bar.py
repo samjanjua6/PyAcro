@@ -53,36 +53,39 @@ class AcrobatMarkWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(30, 32)
+        svg_path = os.path.join(ICONS_DIR, "adobe_acrobat.svg")
+        self.renderer = QSvgRenderer(svg_path) if os.path.exists(svg_path) else None
 
     def paintEvent(self, event: QPaintEvent):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
 
-        # 1. Red rounded rectangle badge
-        rect = QRectF(0, 0, self.width(), self.height())
-        painter.setBrush(QBrush(QColor("#EB1000")))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(rect, 3, 3)
+        if self.renderer and self.renderer.isValid():
+            self.renderer.render(painter, QRectF(0, 1, 30, 30))
+        else:
+            # Fallback red rounded rectangle badge
+            rect = QRectF(0, 0, self.width(), self.height())
+            painter.setBrush(QBrush(QColor("#EB1000")))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(rect, 3, 3)
 
-        # 2. Stylized white Acrobat ribbon loop
-        pen = QPen(QColor("#FFFFFF"), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
+            pen = QPen(QColor("#FFFFFF"), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
 
-        path = QPainterPath()
-        # Left leg curving up to top loop
-        path.moveTo(6.5, 25.0)
-        path.cubicTo(10.0, 24.0, 13.0, 16.0, 15.0, 7.5)
-        # Top loop and curving down to right leg
-        path.cubicTo(17.0, 16.0, 20.0, 24.0, 23.5, 25.0)
+            path = QPainterPath()
+            path.moveTo(6.5, 25.0)
+            path.cubicTo(10.0, 24.0, 13.0, 16.0, 15.0, 7.5)
+            path.cubicTo(17.0, 16.0, 20.0, 24.0, 23.5, 25.0)
 
-        # Middle cross curve
-        cross_path = QPainterPath()
-        cross_path.moveTo(9.5, 20.5)
-        cross_path.cubicTo(12.5, 19.0, 17.5, 19.0, 20.5, 20.5)
+            cross_path = QPainterPath()
+            cross_path.moveTo(9.5, 20.5)
+            cross_path.cubicTo(12.5, 19.0, 17.5, 19.0, 20.5, 20.5)
 
-        painter.drawPath(path)
-        painter.drawPath(cross_path)
+            painter.drawPath(path)
+            painter.drawPath(cross_path)
+
         painter.end()
 
 

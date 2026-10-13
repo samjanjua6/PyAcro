@@ -4,8 +4,10 @@ Centralizes all theme colors behind semantic tokens (bg, surface, text, text-mut
 so that no UI component hardcodes white or black.
 """
 
+import os
 from dataclasses import dataclass
 from typing import Optional
+from PySide6.QtGui import QIcon
 
 
 @dataclass(frozen=True)
@@ -604,3 +606,21 @@ QProgressBar::chunk {{
 
 ACROBAT_DARK_THEME = generate_theme_stylesheet(DARK_TOKENS)
 ACROBAT_LIGHT_THEME = generate_theme_stylesheet(LIGHT_TOKENS)
+
+
+def get_app_icon() -> QIcon:
+    """Returns the multi-resolution Adobe Acrobat application QIcon."""
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ico_path = os.path.join(base_dir, "resources", "icons", "adobe_acrobat.ico")
+    png_path = os.path.join(base_dir, "resources", "icons", "adobe_acrobat.png")
+    svg_path = os.path.join(base_dir, "resources", "icons", "adobe_acrobat.svg")
+
+    icon = QIcon()
+    if os.path.exists(ico_path):
+        icon.addFile(ico_path)
+    if os.path.exists(png_path):
+        icon.addFile(png_path)
+    if os.path.exists(svg_path):
+        icon.addFile(svg_path)
+    return icon
+

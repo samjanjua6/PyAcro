@@ -26,7 +26,8 @@ from pyacrobat.core.export_engine import (
 )
 from pyacrobat.ui.export_progress_dialog import ExportProgressDialog, ExportSuccessDialog
 from pyacrobat.ui.styles import (
-    ACROBAT_DARK_THEME, ACROBAT_LIGHT_THEME, ThemeManager, generate_theme_stylesheet
+    ACROBAT_DARK_THEME, ACROBAT_LIGHT_THEME, ThemeManager, generate_theme_stylesheet,
+    get_app_icon
 )
 from pyacrobat.ui.app_nav_bar import AppNavBar
 from pyacrobat.ui.quick_tools_bar import QuickToolsBar
@@ -1398,6 +1399,11 @@ class MainWindow(QMainWindow):
     def __init__(self, start_dark: bool = False):
         super().__init__()
         self.setWindowTitle("Adobe Acrobat")
+        app_icon = get_app_icon()
+        self.setWindowIcon(app_icon)
+        app = QApplication.instance()
+        if app and app.windowIcon().isNull():
+            app.setWindowIcon(app_icon)
         self.is_dark_theme = start_dark
 
         # Multi-document Undo/Redo Orchestrator
